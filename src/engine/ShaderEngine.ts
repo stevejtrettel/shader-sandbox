@@ -81,13 +81,19 @@ vec2 _st_dirToEquirect(vec3 dir) {
 }
 `;
 
-// Line count computed from actual preamble (for error line mapping)
-// Count actual newlines in the preamble string
-const PREAMBLE_LINE_COUNT = (FRAGMENT_PREAMBLE.match(/\n/g) || []).length;
-
 // =============================================================================
 // ShaderEngine Implementation
 // =============================================================================
+
+/** Line mapping for error reporting — maps compiled shader lines back to user source. */
+export interface LineMapping {
+  /** 1-indexed line where common.glsl starts in compiled source (0 if no common). */
+  commonStartLine: number;
+  /** Number of lines in common.glsl. */
+  commonLines: number;
+  /** 1-indexed line where user shader code starts in compiled source. */
+  userCodeStartLine: number;
+}
 
 /** Runtime state for a single UBO-backed array uniform */
 interface UBOEntry {
@@ -129,6 +135,7 @@ export class ShaderEngine {
     source: string;
     isFromCommon: boolean;
     originalLine: number | null;
+    lineMapping: LineMapping;
   }> = [];
 
   // Custom uniform state manager (initialized in initCustomUniforms called by constructor)
@@ -547,6 +554,7 @@ export class ShaderEngine {
     source: string;
     isFromCommon: boolean;
     originalLine: number | null;
+    lineMapping: LineMapping;
   }> {
     return this._compilationErrors;
   }
@@ -914,7 +922,7 @@ export class ShaderEngine {
     }
 
     // Build new fragment shader
-    const fragmentSource = this.buildFragmentShader(newSource, projectPass.channels, projectPass.namedSamplers);
+    const { source: fragmentSource } = this.buildFragmentShader(newSource, projectPass.channels, projectPass.namedSamplers);
 
     try {
       // Try to compile new program
@@ -1219,7 +1227,7 @@ export class ShaderEngine {
       if (!projectPass) continue;
 
       // Build fragment shader source (outside try so we can access in catch)
-      const fragmentSource = this.buildFragmentShader(projectPass.glslSource, projectPass.channels, projectPass.namedSamplers);
+      const { source: fragmentSource, lineMapping } = this.buildFragmentShader(projectPass.glslSource, projectPass.channels, projectPass.namedSamplers);
 
       try {
         // Compile program
@@ -1252,21 +1260,24 @@ export class ShaderEngine {
         // Store compilation error with source code for context display
         const errorMessage = err instanceof Error ? err.message : String(err);
 
-        // Detect if error is from common.glsl
-        const lineMapping = this.getLineMapping();
+        // Detect if error is from common.glsl or user code
         const errorLineMatch = errorMessage.match(/ERROR:\s*\d+:(\d+):/);
         let isFromCommon = false;
         let originalLine: number | null = null;
 
-        if (errorLineMatch && this.project.commonSource) {
+        if (errorLineMatch) {
           const errorLine = parseInt(errorLineMatch[1], 10);
-          const commonStartLine = lineMapping.boilerplateLinesBeforeCommon + 2; // +1 for comment, +1 for 1-indexed
-          const commonEndLine = commonStartLine + lineMapping.commonLineCount - 1;
 
-          if (errorLine >= commonStartLine && errorLine <= commonEndLine) {
-            isFromCommon = true;
-            // Calculate line number relative to common.glsl
-            originalLine = errorLine - commonStartLine + 1;
+          if (lineMapping.commonStartLine > 0 && lineMapping.commonLines > 0) {
+            const commonEndLine = lineMapping.commonStartLine + lineMapping.commonLines - 1;
+            if (errorLine >= lineMapping.commonStartLine && errorLine <= commonEndLine) {
+              isFromCommon = true;
+              originalLine = errorLine - lineMapping.commonStartLine + 1;
+            }
+          }
+
+          if (!isFromCommon && lineMapping.userCodeStartLine > 0 && errorLine >= lineMapping.userCodeStartLine) {
+            originalLine = errorLine - lineMapping.userCodeStartLine + 1;
           }
         }
 
@@ -1276,26 +1287,13 @@ export class ShaderEngine {
           source: fragmentSource,
           isFromCommon,
           originalLine,
+          lineMapping,
         });
         console.error(`Failed to compile ${passName}:`, errorMessage);
       }
     }
   }
 
-  /**
-   * Calculate line number mappings for error reporting.
-   * Returns info about where common.glsl code lives in the compiled shader.
-   */
-  private getLineMapping(): { boilerplateLinesBeforeCommon: number; commonLineCount: number } {
-    // +1 for the "// Common code" comment line added before common source
-    const boilerplateLinesBeforeCommon = PREAMBLE_LINE_COUNT + 1;
-
-    const commonLineCount = this.project.commonSource
-      ? this.project.commonSource.split('\n').length
-      : 0;
-
-    return { boilerplateLinesBeforeCommon, commonLineCount };
-  }
 
   /**
    * Build complete fragment shader source with Shadertoy boilerplate.
@@ -1303,7 +1301,7 @@ export class ShaderEngine {
    * @param userSource - The user's GLSL source code
    * @param channels - Channel configuration for this pass (to detect cubemap textures)
    */
-  private buildFragmentShader(userSource: string, channels: ChannelSource[], namedSamplers?: Map<string, ChannelSource>): string {
+  private buildFragmentShader(userSource: string, channels: ChannelSource[], namedSamplers?: Map<string, ChannelSource>): { source: string; lineMapping: LineMapping } {
     const parts: string[] = [FRAGMENT_PREAMBLE];
 
     // Common code (if any)
@@ -1408,7 +1406,28 @@ void main() {
   mainImage(fragColor, gl_FragCoord.xy);
 }`);
 
-    return parts.join('\n');
+    const source = parts.join('\n');
+
+    // Compute line mapping by finding marker comments
+    const sourceLines = source.split('\n');
+    let commonStartLine = 0;
+    let commonLines = 0;
+    let userCodeStartLine = 0;
+
+    for (let i = 0; i < sourceLines.length; i++) {
+      if (sourceLines[i] === '// Common code') {
+        commonStartLine = i + 2; // 1-indexed, skip the comment itself
+        commonLines = this.project.commonSource ? this.project.commonSource.split('\n').length : 0;
+      }
+      if (sourceLines[i] === '// User shader code') {
+        userCodeStartLine = i + 2; // 1-indexed, skip the comment itself
+      }
+    }
+
+    return {
+      source,
+      lineMapping: { commonStartLine, commonLines, userCodeStartLine },
+    };
   }
 
   /**

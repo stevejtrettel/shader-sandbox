@@ -17,6 +17,7 @@ import {
 import {
   parseChannelValue,
   defaultSourceForPass,
+  validateConfig,
   PASS_ORDER,
   BUFFER_PASS_NAMES,
   CHANNEL_KEYS,
@@ -183,6 +184,7 @@ export async function loadDemo(
   }
 
   const config = await jsonFiles[configPath]();
+  validateConfig(config as Record<string, any>, normalizedPath);
   const mode: 'shadertoy' | 'standard' = config.mode === 'shadertoy' ? 'shadertoy' : 'standard';
 
   // Load script hooks (available in both modes)

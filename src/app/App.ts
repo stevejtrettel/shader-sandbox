@@ -11,7 +11,7 @@
 
 import './app.css';
 
-import { ShaderEngine } from '../engine/ShaderEngine';
+import { ShaderEngine, LineMapping } from '../engine/ShaderEngine';
 import { ShaderProject, ScriptEngineAPI } from '../project/types';
 import { UniformsPanel } from '../uniforms/UniformsPanel';
 import { AppOptions, MouseState, TouchState, PointerData } from './types';
@@ -108,6 +108,7 @@ export class App {
 
   // Error overlay
   private errorOverlay: HTMLElement | null = null;
+  private mediaBanner: HTMLElement | null = null;
 
   // Resize observer
   private resizeObserver: ResizeObserver;
@@ -234,6 +235,11 @@ export class App {
       this.showErrorOverlay(this.engine.getCompilationErrors());
     }
 
+    // Show media permission banner if audio/webcam needed
+    if (this.engine.needsAudio || this.engine.needsWebcam) {
+      this.showMediaBanner();
+    }
+
     // Initialize script API and run setup hook
     if (this.project.script) {
       // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -319,6 +325,7 @@ export class App {
   private initMediaOnGesture(): void {
     if (this.mediaInitialized) return;
     this.mediaInitialized = true;
+    this.hideMediaBanner();
 
     if (this.engine.needsAudio) {
       this.engine.initAudio();
@@ -398,6 +405,7 @@ export class App {
     }
     this.hideContextLostOverlay();
     this.hideErrorOverlay();
+    this.hideMediaBanner();
     this.hideRecordingIndicator();
   }
 
@@ -1787,6 +1795,38 @@ requestAnimationFrame(render);
   }
 
   // ===========================================================================
+  // Media Permission Banner
+  // ===========================================================================
+
+  private showMediaBanner(): void {
+    this.mediaBanner = document.createElement('div');
+    this.mediaBanner.className = 'media-permission-banner';
+
+    const features: string[] = [];
+    if (this.engine.needsAudio) features.push('microphone');
+    if (this.engine.needsWebcam) features.push('webcam');
+
+    this.mediaBanner.innerHTML = `
+      <span class="media-banner-text">This shader uses ${features.join(' and ')}</span>
+      <button class="media-banner-button">Click to enable</button>
+    `;
+
+    const button = this.mediaBanner.querySelector('.media-banner-button')!;
+    button.addEventListener('click', () => {
+      this.initMediaOnGesture();
+    });
+
+    this.container.appendChild(this.mediaBanner);
+  }
+
+  private hideMediaBanner(): void {
+    if (this.mediaBanner) {
+      this.mediaBanner.remove();
+      this.mediaBanner = null;
+    }
+  }
+
+  // ===========================================================================
   // Error Handling
   // ===========================================================================
 
@@ -1799,6 +1839,7 @@ requestAnimationFrame(render);
     source: string;
     isFromCommon: boolean;
     originalLine: number | null;
+    lineMapping: LineMapping;
   }>): void {
     // Create overlay if it doesn't exist
     if (!this.errorOverlay) {
@@ -1818,23 +1859,33 @@ requestAnimationFrame(render);
     const allErrors = [...uniqueCommonErrors, ...passErrors];
 
     // Parse and format errors with source context
-    const formattedErrors = allErrors.map(({passName, error, source, isFromCommon, originalLine}) => {
-      // Extract the actual GLSL error from the thrown error message
+    const formattedErrors = allErrors.map(({passName, error, isFromCommon, originalLine, lineMapping}) => {
       const glslError = error.replace('Shader compilation failed:\n', '');
 
-      // For common errors, adjust line number in error message
+      // Use originalLine (already computed by engine relative to user/common source)
+      const displayLine = originalLine;
+
+      // Adjust error message to show user-relative line numbers
       let adjustedError = glslError;
-      if (isFromCommon && originalLine !== null) {
-        adjustedError = glslError.replace(/Line \d+:/, `Line ${originalLine}:`);
-        adjustedError = adjustedError.replace(/ERROR:\s*\d+:(\d+):/, `ERROR: 0:${originalLine}:`);
+      if (displayLine !== null) {
+        adjustedError = glslError.replace(/ERROR:\s*\d+:(\d+):/g, `ERROR: 0:${displayLine}:`);
+      }
+
+      // Get user's original source for code context
+      let userSource: string | null = null;
+      if (isFromCommon) {
+        userSource = this.engine.project.commonSource;
+      } else {
+        const pass = this.engine.project.passes[passName as 'Image' | 'BufferA' | 'BufferB' | 'BufferC' | 'BufferD'];
+        userSource = pass?.glslSource ?? null;
       }
 
       return {
         passName: isFromCommon ? 'common.glsl' : passName,
-        error: this.parseShaderError(adjustedError),
-        codeContext: isFromCommon
-          ? this.extractCodeContextFromCommon(originalLine!)
-          : this.extractCodeContext(adjustedError, source),
+        error: this.parseShaderError(adjustedError, lineMapping, isFromCommon),
+        codeContext: displayLine !== null && userSource
+          ? this.buildCodeContext(userSource, displayLine)
+          : null,
       };
     });
 
@@ -1872,91 +1923,71 @@ requestAnimationFrame(render);
   }
 
   /**
-   * Parse and improve WebGL shader error messages.
+   * Parse WebGL error messages into user-friendly format with correct line numbers.
    */
-  private parseShaderError(error: string): string {
-    // WebGL errors typically look like: "ERROR: 0:45: 'texure' : no matching overloaded function found"
-    // Let's make them more readable by highlighting line numbers and adding context
-
+  private parseShaderError(error: string, lineMapping: LineMapping, isFromCommon: boolean): string {
     return error.split('\n').map(line => {
-      // Match pattern: ERROR: 0:lineNumber: message
       const match = line.match(/^ERROR:\s*(\d+):(\d+):\s*(.+)$/);
       if (match) {
-        const [, , lineNum, message] = match;
-        return `Line ${lineNum}: ${message}`;
+        const [, , rawLineStr, message] = match;
+        const rawLine = parseInt(rawLineStr, 10);
+
+        // Convert compiled line number to user-relative line
+        let userLine = rawLine;
+        if (isFromCommon && lineMapping.commonStartLine > 0) {
+          userLine = rawLine - lineMapping.commonStartLine + 1;
+        } else if (lineMapping.userCodeStartLine > 0 && rawLine >= lineMapping.userCodeStartLine) {
+          userLine = rawLine - lineMapping.userCodeStartLine + 1;
+        }
+
+        return `Line ${userLine}: ${this.friendlyGLSLError(message)}`;
       }
       return line;
     }).join('\n');
   }
 
   /**
-   * Extract code context around error line (±3 lines).
-   * Returns HTML with the error line highlighted.
+   * Add helpful hints to common GLSL error messages.
    */
-  private extractCodeContext(error: string, source: string): string | null {
-    // Extract line number from error
-    const match = error.match(/ERROR:\s*\d+:(\d+):/);
-    if (!match) return null;
-
-    const errorLine = parseInt(match[1], 10);
-    const lines = source.split('\n');
-
-    // Extract context (3 lines before and after)
-    const contextRange = 3;
-    const startLine = Math.max(0, errorLine - contextRange - 1);
-    const endLine = Math.min(lines.length, errorLine + contextRange);
-
-    const contextLines = lines.slice(startLine, endLine);
-
-    // Build HTML with line numbers and highlighting
-    const html = contextLines.map((line, idx) => {
-      const lineNum = startLine + idx + 1;
-      const isErrorLine = lineNum === errorLine;
-      const lineNumPadded = String(lineNum).padStart(4, ' ');
-      const escapedLine = this.escapeHTML(line);
-
-      if (isErrorLine) {
-        return `<span class="error-line-highlight">${lineNumPadded} │ ${escapedLine}</span>`;
-      } else {
-        return `<span class="context-line">${lineNumPadded} │ ${escapedLine}</span>`;
-      }
-    }).join(''); // No newline - spans already have display:block
-
-    return html;
+  private friendlyGLSLError(msg: string): string {
+    if (msg.includes('no matching overloaded function found'))
+      return msg + ' (check function name spelling and argument types)';
+    if (msg.includes('undeclared identifier'))
+      return msg + ' (variable not declared — check spelling)';
+    if (msg.includes('syntax error'))
+      return msg + ' (check for missing semicolons, brackets, or commas)';
+    if (msg.includes('is not a function'))
+      return msg + ' (identifier exists but is not callable)';
+    if (msg.includes('wrong operand types'))
+      return msg + ' (type mismatch — check vec/float/int types)';
+    return msg;
   }
 
   /**
-   * Extract code context from common.glsl file.
-   * Similar to extractCodeContext but uses the original common source.
+   * Build code context HTML around an error line (±3 lines) from source.
    */
-  private extractCodeContextFromCommon(errorLine: number): string | null {
-    const commonSource = this.engine.project.commonSource;
-    if (!commonSource) return null;
+  private buildCodeContext(source: string, errorLine: number): string | null {
+    const lines = source.split('\n');
+    if (errorLine < 1 || errorLine > lines.length) return null;
 
-    const lines = commonSource.split('\n');
-
-    // Extract context (3 lines before and after)
     const contextRange = 3;
     const startLine = Math.max(0, errorLine - contextRange - 1);
     const endLine = Math.min(lines.length, errorLine + contextRange);
 
     const contextLines = lines.slice(startLine, endLine);
 
-    // Build HTML with line numbers and highlighting
-    const html = contextLines.map((line, idx) => {
+    return contextLines.map((line, idx) => {
       const lineNum = startLine + idx + 1;
-      const isErrorLine = lineNum === errorLine;
+      const isError = lineNum === errorLine;
       const lineNumPadded = String(lineNum).padStart(4, ' ');
       const escapedLine = this.escapeHTML(line);
 
-      if (isErrorLine) {
+      if (isError) {
         return `<span class="error-line-highlight">${lineNumPadded} │ ${escapedLine}</span>`;
       } else {
         return `<span class="context-line">${lineNumPadded} │ ${escapedLine}</span>`;
       }
-    }).join(''); // No newline - spans already have display:block
-
-    return html;
+    }).join('');
   }
 
   /**

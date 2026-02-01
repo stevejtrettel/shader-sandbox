@@ -28,6 +28,7 @@ import {
   isPassName,
   parseChannelValue,
   defaultSourceForPass,
+  validateConfig,
   CHANNEL_KEYS,
   BUFFER_PASS_NAMES,
   DEFAULT_LAYOUT,
@@ -118,6 +119,8 @@ export async function loadProject(root: string): Promise<ShaderProject> {
         `Invalid JSON in config.json at '${root}': ${err?.message ?? String(err)}`
       );
     }
+    validateConfig(config, root);
+
     if (config.mode === 'shadertoy') {
       return await loadShadertoyProject(root, config as ShadertoyConfig);
     }

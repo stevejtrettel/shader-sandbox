@@ -28,24 +28,43 @@ try {
 import { loadDemo } from './loaderHelper';
 import { ProjectConfig } from './types';
 
-export const DEMO_NAME = '${demo}';
+export const DEMO_NAME = 'demos/${demo}';
+
+// Transform glob keys from "/path" to "./path" format
+function transformKeys<T>(files: Record<string, T>): Record<string, T> {
+  const result: Record<string, T> = {};
+  for (const [key, value] of Object.entries(files)) {
+    const newKey = key.startsWith('/') ? '.' + key : key;
+    result[newKey] = value;
+  }
+  return result;
+}
 
 export async function loadDemoProject() {
-  const glslFiles = import.meta.glob<string>('/demos/${demo}/**/*.glsl', {
+  const glslFilesRaw = import.meta.glob<string>('/demos/${demo}/**/*.glsl', {
     query: '?raw',
     import: 'default',
   });
 
-  const jsonFiles = import.meta.glob<ProjectConfig>('/demos/${demo}/**/*.json', {
+  const jsonFilesRaw = import.meta.glob<ProjectConfig>('/demos/${demo}/**/*.json', {
     import: 'default',
   });
 
-  const imageFiles = import.meta.glob<string>('/demos/${demo}/**/*.{jpg,jpeg,png,gif,webp,bmp}', {
+  const imageFilesRaw = import.meta.glob<string>('/demos/${demo}/**/*.{jpg,jpeg,png,gif,webp,bmp}', {
     query: '?url',
     import: 'default',
   });
 
-  return loadDemo(DEMO_NAME, glslFiles, jsonFiles, imageFiles);
+  // Script files (setup.js / script.js hooks for JS-driven computation)
+  const scriptFilesRaw = import.meta.glob<any>('/demos/${demo}/**/script.js');
+
+  // Transform keys to ./ format that loadDemo expects
+  const glslFiles = transformKeys(glslFilesRaw);
+  const jsonFiles = transformKeys(jsonFilesRaw);
+  const imageFiles = transformKeys(imageFilesRaw);
+  const scriptFiles = transformKeys(scriptFilesRaw);
+
+  return loadDemo(DEMO_NAME, glslFiles, jsonFiles, imageFiles, scriptFiles);
 }
 `;
 
