@@ -1,14 +1,15 @@
 /**
  * Engine Layer - Type Definitions
  *
- * Internal types used by ShadertoyEngine for managing WebGL resources.
+ * Internal types used by ShaderEngine for managing WebGL resources.
  * Based on docs/engine-spec.md
  */
 
 import type {
-  ShadertoyProject,
+  ShaderProject,
   PassName,
   Channels,
+  ChannelSource,
 } from '../project/types';
 
 // =============================================================================
@@ -16,14 +17,14 @@ import type {
 // =============================================================================
 
 /**
- * Options for constructing a ShadertoyEngine.
+ * Options for constructing a ShaderEngine.
  *
  * The App is responsible for creating the WebGL2RenderingContext
  * and passing it in.
  */
 export interface EngineOptions {
   gl: WebGL2RenderingContext;
-  project: ShadertoyProject;
+  project: ShaderProject;
 }
 
 // =============================================================================
@@ -63,6 +64,10 @@ export interface PassUniformLocations {
 
   // Custom uniforms (from project config)
   custom: Map<string, WebGLUniformLocation | null>;
+
+  // Named samplers (standard mode)
+  namedSamplers: Map<string, WebGLUniformLocation | null>;
+  namedSamplerResolutions: Map<string, WebGLUniformLocation | null>;
 }
 
 // =============================================================================
@@ -89,6 +94,9 @@ export interface RuntimePass {
   // - previous: where we read "previous" from when needed
   currentTexture: WebGLTexture;
   previousTexture: WebGLTexture;
+
+  // Named samplers (standard mode) - maps sampler name → channel source
+  namedSamplers?: Map<string, ChannelSource>;
 }
 
 // =============================================================================
@@ -97,7 +105,7 @@ export interface RuntimePass {
 
 /**
  * Runtime representation of an external 2D texture.
- * This corresponds 1:1 to ShadertoyTexture2D from the project.
+ * This corresponds 1:1 to ShaderTexture2D from the project.
  */
 export interface RuntimeTexture2D {
   name: string; // e.g. "tex0" (same as project texture name)

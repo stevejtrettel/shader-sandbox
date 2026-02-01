@@ -1,4 +1,5 @@
 {
+  "mode": "shadertoy",
   "layout": "tabbed",
   "controls": true,
   "BufferA": {

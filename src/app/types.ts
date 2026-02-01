@@ -4,7 +4,7 @@
  * Types for the browser runtime coordinator.
  */
 
-import type { ShadertoyProject } from '../project/types';
+import type { ShaderProject } from '../project/types';
 
 /**
  * Options for creating the App.
@@ -18,7 +18,7 @@ export interface AppOptions {
   /**
    * Loaded Shadertoy project.
    */
-  project: ShadertoyProject;
+  project: ShaderProject;
 
   /**
    * Canvas pixel ratio (default: window.devicePixelRatio).

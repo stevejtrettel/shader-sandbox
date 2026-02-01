@@ -8,7 +8,7 @@
  * - Tab management for multiple passes
  */
 
-import { ShadertoyProject, PassName } from '../project/types';
+import { ShaderProject, PassName } from '../project/types';
 import { RecompileHandler } from '../layouts/types';
 
 import './editor-panel.css';
@@ -25,7 +25,7 @@ interface EditorInstance {
 
 export class EditorPanel {
   private container: HTMLElement;
-  private project: ShadertoyProject;
+  private project: ShaderProject;
   private recompileHandler: RecompileHandler | null = null;
 
   private tabBar: HTMLElement;
@@ -43,7 +43,7 @@ export class EditorPanel {
   // Track modified sources (passName -> modified source)
   private modifiedSources: Map<string, string> = new Map();
 
-  constructor(container: HTMLElement, project: ShadertoyProject) {
+  constructor(container: HTMLElement, project: ShaderProject) {
     this.container = container;
     this.project = project;
 

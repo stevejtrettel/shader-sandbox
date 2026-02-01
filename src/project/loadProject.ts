@@ -1,7 +1,7 @@
 /**
  * Project Layer - Config Loader
  *
- * Loads Shadertoy projects from disk into normalized ShadertoyProject representation.
+ * Loads Shadertoy projects from disk into normalized ShaderProject representation.
  * Handles both single-pass (no config) and multi-pass (with config) projects.
  *
  * Based on docs/project-spec.md
@@ -16,10 +16,15 @@ import {
   ChannelValue,
   ChannelJSONObject,
   ShadertoyConfig,
-  ShadertoyPass,
-  ShadertoyProject,
-  ShadertoyTexture2D,
+  StandardConfig,
+  StandardBufferConfig,
+  ShaderPass,
+  ShaderProject,
+  ShaderTexture2D,
   PassConfigSimplified,
+  UniformDefinitions,
+  UniformDefinition,
+  isArrayUniform,
 } from './types';
 
 // =============================================================================
@@ -95,17 +100,17 @@ function defaultSourceForPass(name: PassName): string {
  * - Multi-pass mode (config.json present)
  *
  * @param root - Absolute path to project directory
- * @returns Fully normalized ShadertoyProject
+ * @returns Fully normalized ShaderProject
  * @throws Error with descriptive message if project is invalid
  */
-export async function loadProject(root: string): Promise<ShadertoyProject> {
+export async function loadProject(root: string): Promise<ShaderProject> {
   const configPath = path.join(root, 'config.json');
   const hasConfig = await fileExists(configPath);
 
   if (hasConfig) {
     // Multi-pass mode: parse config
     const raw = await fs.readFile(configPath, 'utf8');
-    let config: ShadertoyConfig;
+    let config: any;
     try {
       config = JSON.parse(raw);
     } catch (err: any) {
@@ -113,7 +118,10 @@ export async function loadProject(root: string): Promise<ShadertoyProject> {
         `Invalid JSON in config.json at '${root}': ${err?.message ?? String(err)}`
       );
     }
-    return await loadProjectWithConfig(root, config);
+    if (config.mode === 'shadertoy') {
+      return await loadProjectWithConfig(root, config as ShadertoyConfig);
+    }
+    return await loadStandardProject(root, config as StandardConfig);
   } else {
     // Single-pass mode: just image.glsl
     return await loadSinglePassProject(root);
@@ -134,9 +142,9 @@ export async function loadProject(root: string): Promise<ShadertoyProject> {
  * - No common.glsl allowed
  *
  * @param root - Project directory
- * @returns ShadertoyProject with only Image pass
+ * @returns ShaderProject with only Image pass
  */
-async function loadSinglePassProject(root: string): Promise<ShadertoyProject> {
+async function loadSinglePassProject(root: string): Promise<ShaderProject> {
   const imagePath = path.join(root, 'image.glsl');
   if (!(await fileExists(imagePath))) {
     throw new Error(`Single-pass project at '${root}' requires 'image.glsl'.`);
@@ -164,7 +172,8 @@ async function loadSinglePassProject(root: string): Promise<ShadertoyProject> {
   const imageSource = await fs.readFile(imagePath, 'utf8');
   const title = path.basename(root);
 
-  const project: ShadertoyProject = {
+  const project: ShaderProject = {
+    mode: 'standard',
     root,
     meta: {
       title,
@@ -233,14 +242,105 @@ function parseChannelValue(value: ChannelValue): ChannelJSONObject | null {
   return value;
 }
 
+// =============================================================================
+// Uniform Validation
+// =============================================================================
+
+/** Valid scalar uniform types */
+const SCALAR_TYPES = new Set(['float', 'int', 'bool', 'vec2', 'vec3', 'vec4']);
+/** Valid array uniform types */
+const ARRAY_TYPES = new Set(['float', 'vec2', 'vec3', 'vec4', 'mat3', 'mat4']);
+/** Expected component count for vector/matrix types */
+const COMPONENT_COUNTS: Record<string, number> = {
+  vec2: 2, vec3: 3, vec4: 4,
+};
+
+/**
+ * Validate uniform definitions from config.json.
+ * Throws on invalid definitions with descriptive error messages.
+ */
+function validateUniforms(uniforms: UniformDefinitions, root: string): void {
+  for (const [name, def] of Object.entries(uniforms)) {
+    const prefix = `Uniform '${name}' in '${root}'`;
+
+    if (!def.type) {
+      throw new Error(`${prefix}: missing 'type' field`);
+    }
+
+    if (isArrayUniform(def)) {
+      // Array uniform validation
+      if (!ARRAY_TYPES.has(def.type)) {
+        throw new Error(`${prefix}: invalid array type '${def.type}'. Expected one of: ${[...ARRAY_TYPES].join(', ')}`);
+      }
+      if (typeof def.count !== 'number' || def.count < 1 || !Number.isInteger(def.count)) {
+        throw new Error(`${prefix}: 'count' must be a positive integer, got ${def.count}`);
+      }
+      continue;
+    }
+
+    // Scalar uniform validation
+    if (!SCALAR_TYPES.has(def.type)) {
+      throw new Error(`${prefix}: invalid type '${def.type}'. Expected one of: ${[...SCALAR_TYPES].join(', ')}`);
+    }
+
+    // Validate value matches type
+    switch (def.type) {
+      case 'float':
+      case 'int':
+        if (typeof def.value !== 'number') {
+          throw new Error(`${prefix}: 'value' must be a number for type '${def.type}', got ${typeof def.value}`);
+        }
+        if (def.min !== undefined && typeof def.min !== 'number') {
+          throw new Error(`${prefix}: 'min' must be a number`);
+        }
+        if (def.max !== undefined && typeof def.max !== 'number') {
+          throw new Error(`${prefix}: 'max' must be a number`);
+        }
+        if (def.step !== undefined && typeof def.step !== 'number') {
+          throw new Error(`${prefix}: 'step' must be a number`);
+        }
+        break;
+
+      case 'bool':
+        if (typeof def.value !== 'boolean') {
+          throw new Error(`${prefix}: 'value' must be a boolean for type 'bool', got ${typeof def.value}`);
+        }
+        break;
+
+      case 'vec2':
+      case 'vec3':
+      case 'vec4': {
+        const n = COMPONENT_COUNTS[def.type];
+        if (!Array.isArray(def.value) || def.value.length !== n) {
+          throw new Error(`${prefix}: 'value' must be an array of ${n} numbers for type '${def.type}'`);
+        }
+        if (def.value.some((v: any) => typeof v !== 'number')) {
+          throw new Error(`${prefix}: all components of 'value' must be numbers`);
+        }
+        // Validate min/max/step arrays if present
+        const vecDef = def as { min?: number[]; max?: number[]; step?: number[] };
+        for (const field of ['min', 'max', 'step'] as const) {
+          const arr = vecDef[field];
+          if (arr !== undefined) {
+            if (!Array.isArray(arr) || arr.length !== n) {
+              throw new Error(`${prefix}: '${field}' must be an array of ${n} numbers for type '${def.type}'`);
+            }
+          }
+        }
+        break;
+      }
+    }
+  }
+}
+
 /**
  * Load a project with config.json.
  *
  * @param root - Project directory
  * @param config - Parsed JSON config
- * @returns Normalized ShadertoyProject
+ * @returns Normalized ShaderProject
  */
-async function loadProjectWithConfig(root: string, config: ShadertoyConfig): Promise<ShadertoyProject> {
+async function loadProjectWithConfig(root: string, config: ShadertoyConfig): Promise<ShaderProject> {
   // Extract pass configs from top level
   const passConfigs = {
     Image: config.Image,
@@ -278,7 +378,7 @@ async function loadProjectWithConfig(root: string, config: ShadertoyConfig): Pro
   }
 
   // Texture deduplication map
-  const textureMap = new Map<string, ShadertoyTexture2D>();
+  const textureMap = new Map<string, ShaderTexture2D>();
 
   /**
    * Register a texture and return its internal name.
@@ -294,7 +394,7 @@ async function loadProjectWithConfig(root: string, config: ShadertoyConfig): Pro
     }
 
     const name = `tex${textureMap.size}`;
-    const tex: ShadertoyTexture2D = {
+    const tex: ShaderTexture2D = {
       name,
       source: j.texture,
       filter,
@@ -369,7 +469,7 @@ async function loadProjectWithConfig(root: string, config: ShadertoyConfig): Pro
   async function loadPass(
     name: PassName,
     passConfig: PassConfigSimplified | undefined
-  ): Promise<ShadertoyPass | undefined> {
+  ): Promise<ShaderPass | undefined> {
     if (!passConfig) return undefined;
 
     const sourceRel = passConfig.source ?? defaultSourceForPass(name);
@@ -433,7 +533,8 @@ async function loadProjectWithConfig(root: string, config: ShadertoyConfig): Pro
   const author = config.author ?? null;
   const description = config.description ?? null;
 
-  const project: ShadertoyProject = {
+  const project: ShaderProject = {
+    mode: 'shadertoy',
     root,
     meta: { title, author, description },
     layout: config.layout ?? 'default',
@@ -450,8 +551,164 @@ async function loadProjectWithConfig(root: string, config: ShadertoyConfig): Pro
       BufferD: bufferDPass,
     },
     textures: Array.from(textureMap.values()),
-    uniforms: config.uniforms ?? {},
+    uniforms: {},
+    script: null,
   };
 
   return project;
+}
+
+// =============================================================================
+// Standard Mode (Named Buffers & Textures)
+// =============================================================================
+
+const BUFFER_PASS_NAMES: PassName[] = ['BufferA', 'BufferB', 'BufferC', 'BufferD'];
+
+/**
+ * Normalize buffers config: array shorthand to object form.
+ */
+function normalizeBuffersConfig(
+  buffers: string[] | Record<string, StandardBufferConfig> | undefined
+): Record<string, StandardBufferConfig> {
+  if (!buffers) return {};
+  if (Array.isArray(buffers)) {
+    const result: Record<string, StandardBufferConfig> = {};
+    for (const name of buffers) {
+      result[name] = {};
+    }
+    return result;
+  }
+  return buffers;
+}
+
+/**
+ * Load a standard mode project with named buffers and textures.
+ */
+async function loadStandardProject(root: string, config: StandardConfig): Promise<ShaderProject> {
+  const buffersConfig = normalizeBuffersConfig(config.buffers);
+  const bufferNames = Object.keys(buffersConfig);
+
+  if (bufferNames.length > 4) {
+    throw new Error(
+      `Standard mode at '${root}' supports max 4 buffers, got ${bufferNames.length}: ${bufferNames.join(', ')}`
+    );
+  }
+
+  // Map buffer names → PassNames (velocity → BufferA, pressure → BufferB, etc.)
+  const bufferNameToPass = new Map<string, PassName>();
+  for (let i = 0; i < bufferNames.length; i++) {
+    bufferNameToPass.set(bufferNames[i], BUFFER_PASS_NAMES[i]);
+  }
+
+  // Texture deduplication
+  const textureMap = new Map<string, ShaderTexture2D>();
+
+  function registerTexture(source: string, filter: 'nearest' | 'linear' = 'linear', wrap: 'clamp' | 'repeat' = 'repeat'): string {
+    const key = `${source}|${filter}|${wrap}`;
+    const existing = textureMap.get(key);
+    if (existing) return existing.name;
+
+    const name = `tex${textureMap.size}`;
+    textureMap.set(key, { name, source, filter, wrap });
+    return name;
+  }
+
+  // Build namedSamplers map (shared by all passes)
+  const namedSamplers = new Map<string, ChannelSource>();
+
+  // Add buffers
+  for (const [bufName, passName] of bufferNameToPass) {
+    namedSamplers.set(bufName, { kind: 'buffer', buffer: passName, current: false });
+  }
+
+  // Add textures
+  for (const [texName, texValue] of Object.entries(config.textures ?? {})) {
+    if (texValue === 'keyboard') {
+      namedSamplers.set(texName, { kind: 'keyboard' });
+    } else if (texValue === 'audio') {
+      namedSamplers.set(texName, { kind: 'audio' });
+    } else if (texValue === 'webcam') {
+      namedSamplers.set(texName, { kind: 'webcam' });
+    } else {
+      // Image file
+      const internalName = registerTexture(texValue);
+      namedSamplers.set(texName, { kind: 'texture', name: internalName, cubemap: false });
+    }
+  }
+
+  const noChannels: Channels = [{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }, { kind: 'none' }];
+
+  // Resolve common source
+  let commonSource: string | null = null;
+  if (config.common) {
+    const commonPath = path.join(root, config.common);
+    if (!(await fileExists(commonPath))) {
+      throw new Error(`Common GLSL file '${config.common}' not found in '${root}'.`);
+    }
+    commonSource = await fs.readFile(commonPath, 'utf8');
+  } else {
+    const defaultCommonPath = path.join(root, 'common.glsl');
+    if (await fileExists(defaultCommonPath)) {
+      commonSource = await fs.readFile(defaultCommonPath, 'utf8');
+    }
+  }
+
+  // Load Image pass
+  const imagePath = path.join(root, 'image.glsl');
+  if (!(await fileExists(imagePath))) {
+    throw new Error(`Standard mode project at '${root}' requires 'image.glsl'.`);
+  }
+  const imageSource = await fs.readFile(imagePath, 'utf8');
+
+  const imagePass: ShaderPass = {
+    name: 'Image',
+    glslSource: imageSource,
+    channels: noChannels,
+    namedSamplers: new Map(namedSamplers),
+  };
+
+  // Load buffer passes
+  const passes: ShaderProject['passes'] = { Image: imagePass };
+
+  for (const [bufName, passName] of bufferNameToPass) {
+    const sourcePath = path.join(root, `${bufName}.glsl`);
+    if (!(await fileExists(sourcePath))) {
+      throw new Error(`Buffer '${bufName}' requires '${bufName}.glsl' in '${root}'.`);
+    }
+    const glslSource = await fs.readFile(sourcePath, 'utf8');
+
+    passes[passName] = {
+      name: passName,
+      glslSource,
+      channels: noChannels,
+      namedSamplers: new Map(namedSamplers),
+    };
+  }
+
+  // Validate uniforms
+  if (config.uniforms) {
+    validateUniforms(config.uniforms, root);
+  }
+
+  const title = config.title ?? path.basename(root);
+
+  return {
+    mode: 'standard',
+    root,
+    meta: {
+      title,
+      author: config.author ?? null,
+      description: config.description ?? null,
+    },
+    layout: config.layout ?? 'default',
+    theme: config.theme ?? 'light',
+    controls: config.controls ?? false,
+    startPaused: config.startPaused ?? false,
+    pixelRatio: config.pixelRatio ?? null,
+    commonSource,
+    passes,
+    textures: Array.from(textureMap.values()),
+    uniforms: config.uniforms ?? {},
+    script: null,
+  };
 }

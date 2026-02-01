@@ -1,4 +1,5 @@
 {
+  "mode": "shadertoy",
   "layout": "default",
   "controls": true,
   "Image": {

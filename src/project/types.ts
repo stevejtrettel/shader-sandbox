@@ -320,15 +320,61 @@ export interface ShadertoyConfig {
   /** Pixel ratio multiplier (default: window.devicePixelRatio). Use <1 for lower resolution. */
   pixelRatio?: number;
 
-  // Custom uniforms (user-defined controls)
-  uniforms?: UniformDefinitions;
-
   // Passes (at top level)
   Image?: PassConfigSimplified;
   BufferA?: PassConfigSimplified;
   BufferB?: PassConfigSimplified;
   BufferC?: PassConfigSimplified;
   BufferD?: PassConfigSimplified;
+}
+
+// =============================================================================
+// Standard Mode Config (Named Buffers & Textures)
+// =============================================================================
+
+/**
+ * Per-buffer configuration in standard mode.
+ */
+export interface StandardBufferConfig {
+  filter?: 'nearest' | 'linear';
+  wrap?: 'clamp' | 'repeat';
+}
+
+/**
+ * Standard mode config format.
+ * Buffers and textures are available everywhere by name.
+ */
+export interface StandardConfig {
+  mode?: 'standard';
+
+  // Metadata
+  title?: string;
+  author?: string;
+  description?: string;
+
+  // Settings
+  layout?: 'fullscreen' | 'default' | 'split' | 'tabbed';
+  theme?: ThemeMode;
+  controls?: boolean;
+  common?: string;
+  startPaused?: boolean;
+  pixelRatio?: number;
+
+  // Custom uniforms
+  uniforms?: UniformDefinitions;
+
+  /**
+   * Named buffers (framebuffers with ping-pong).
+   * Array shorthand ["velocity"] normalizes to { "velocity": {} }.
+   * Max 4 buffers (maps to BufferA-D internally).
+   */
+  buffers?: string[] | Record<string, StandardBufferConfig>;
+
+  /**
+   * Named textures available in all passes.
+   * Value is a file path or special source: "keyboard", "audio", "webcam".
+   */
+  textures?: Record<string, string>;
 }
 
 // =============================================================================
@@ -362,7 +408,7 @@ export type Channels = [ChannelSource, ChannelSource, ChannelSource, ChannelSour
  * External 2D texture loaded from image file.
  * Textures are deduplicated by (source, filter, wrap) tuple.
  */
-export interface ShadertoyTexture2D {
+export interface ShaderTexture2D {
   name: string;  // Internal ID (e.g., "tex0", "tex1")
   filename?: string;  // Original filename for display (e.g., "texture.png")
   source: string;  // Path/URL to image file
@@ -377,10 +423,12 @@ export interface ShadertoyTexture2D {
 /**
  * A single shader pass in the rendering pipeline.
  */
-export interface ShadertoyPass {
+export interface ShaderPass {
   name: PassName;
   glslSource: string;  // Full GLSL source code
   channels: Channels;  // iChannel0..3
+  /** Named samplers (standard mode). Maps sampler name → source. */
+  namedSamplers?: Map<string, ChannelSource>;
 }
 
 // =============================================================================
@@ -390,7 +438,7 @@ export interface ShadertoyPass {
 /**
  * Project metadata (title, author, description).
  */
-export interface ShadertoyMeta {
+export interface ShaderMeta {
   title: string;
   author: string | null;
   description: string | null;
@@ -402,7 +450,7 @@ export interface ShadertoyMeta {
 
 /**
  * Complete in-memory representation of a Shadertoy project.
- * Produced by loadProject() and consumed by ShadertoyEngine.
+ * Produced by loadProject() and consumed by ShaderEngine.
  *
  * Guarantees:
  * - passes.Image always exists
@@ -410,7 +458,13 @@ export interface ShadertoyMeta {
  * - Textures are deduplicated
  * - All paths resolved and GLSL loaded
  */
-export interface ShadertoyProject {
+export interface ShaderProject {
+  /**
+   * Project mode. 'shadertoy' uses iChannel0-3, 'standard' uses named samplers.
+   * Defaults to 'standard' if not specified.
+   */
+  mode: 'shadertoy' | 'standard';
+
   /**
    * Project root directory path.
    */
@@ -419,7 +473,7 @@ export interface ShadertoyProject {
   /**
    * Project metadata.
    */
-  meta: ShadertoyMeta;
+  meta: ShaderMeta;
 
   /**
    * Layout mode for the shader viewer.
@@ -460,18 +514,18 @@ export interface ShadertoyProject {
    * Image is always present, BufferA-D are optional.
    */
   passes: {
-    Image: ShadertoyPass;
-    BufferA?: ShadertoyPass;
-    BufferB?: ShadertoyPass;
-    BufferC?: ShadertoyPass;
-    BufferD?: ShadertoyPass;
+    Image: ShaderPass;
+    BufferA?: ShaderPass;
+    BufferB?: ShaderPass;
+    BufferC?: ShaderPass;
+    BufferD?: ShaderPass;
   };
 
   /**
    * Deduplicated list of external textures.
    * All ChannelSource with kind: 'texture2D' refer to names in this list.
    */
-  textures: ShadertoyTexture2D[];
+  textures: ShaderTexture2D[];
 
   /**
    * Custom uniform definitions from config.

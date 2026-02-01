@@ -3,7 +3,7 @@
  *
  * Responsibilities:
  *  - Create and manage canvas
- *  - Initialize ShadertoyEngine
+ *  - Initialize ShaderEngine
  *  - Run animation loop (requestAnimationFrame)
  *  - Handle resize and mouse events
  *  - Present Image pass output to screen
@@ -11,8 +11,8 @@
 
 import './app.css';
 
-import { ShadertoyEngine } from '../engine/ShadertoyEngine';
-import { ShadertoyProject, ScriptEngineAPI } from '../project/types';
+import { ShaderEngine } from '../engine/ShaderEngine';
+import { ShaderProject, ScriptEngineAPI } from '../project/types';
 import { UniformsPanel } from '../uniforms/UniformsPanel';
 import { AppOptions, MouseState, TouchState, PointerData } from './types';
 
@@ -61,8 +61,8 @@ export class App {
   private container: HTMLElement;
   private canvas: HTMLCanvasElement;
   private gl: WebGL2RenderingContext;
-  private engine: ShadertoyEngine;
-  private project: ShadertoyProject;
+  private engine: ShaderEngine;
+  private project: ShaderProject;
 
   private pixelRatio: number;
   private animationId: number | null = null;
@@ -224,7 +224,7 @@ export class App {
     this.updateCanvasSize();
 
     // Create engine
-    this.engine = new ShadertoyEngine({
+    this.engine = new ShaderEngine({
       gl: this.gl,
       project: opts.project,
     });
@@ -353,7 +353,7 @@ export class App {
    * Get the underlying engine instance.
    * Used for live recompilation in editor mode.
    */
-  getEngine(): ShadertoyEngine {
+  getEngine(): ShaderEngine {
     return this.engine;
   }
 
@@ -1000,7 +1000,7 @@ export class App {
       this.engine.dispose();
 
       // Reinitialize engine with fresh GL state
-      this.engine = new ShadertoyEngine({
+      this.engine = new ShaderEngine({
         gl: this.gl,
         project: this.project,
       });

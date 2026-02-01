@@ -9,12 +9,12 @@
 import './ui.css';
 
 import { BaseLayout, LayoutOptions } from './types';
-import { ShadertoyProject, UniformValue } from '../project/types';
+import { ShaderProject, UniformValue } from '../project/types';
 import type { UniformControls as UniformControlsType } from '../uniforms/UniformControls';
 
 export class UILayout implements BaseLayout {
   private container: HTMLElement;
-  private project: ShadertoyProject;
+  private project: ShaderProject;
   private root: HTMLElement;
   private canvasContainer: HTMLElement;
   private uiPanel: HTMLElement;

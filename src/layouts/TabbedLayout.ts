@@ -8,7 +8,7 @@
 import './tabbed.css';
 
 import { BaseLayout, LayoutOptions, RecompileHandler } from './types';
-import { ShadertoyProject, PassName } from '../project/types';
+import { ShaderProject, PassName } from '../project/types';
 
 type ShaderTab = { kind: 'shader'; name: string };
 type CodeTab = { kind: 'code'; name: string; passName: 'common' | PassName; source: string };
@@ -17,7 +17,7 @@ type Tab = ShaderTab | CodeTab | ImageTab;
 
 export class TabbedLayout implements BaseLayout {
   private container: HTMLElement;
-  private project: ShadertoyProject;
+  private project: ShaderProject;
   private root: HTMLElement;
   private canvasContainer: HTMLElement;
   private contentArea: HTMLElement;

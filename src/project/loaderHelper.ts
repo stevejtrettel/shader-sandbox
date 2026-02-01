@@ -4,11 +4,12 @@
  */
 
 import {
-  ShadertoyProject,
+  ShaderProject,
   ShadertoyConfig,
   PassName,
   ChannelValue,
   ChannelJSONObject,
+  UniformDefinitions,
   DemoScriptHooks,
 } from './types';
 
@@ -61,35 +62,6 @@ function parseChannelValue(value: ChannelValue): ChannelJSONObject | null {
   }
   return value;
 }
-
-export async function loadDemo(
-  demoPath: string,
-  glslFiles: Record<string, () => Promise<string>>,
-  jsonFiles: Record<string, () => Promise<ShadertoyConfig>>,
-  imageFiles: Record<string, () => Promise<string>>,
-  scriptFiles?: Record<string, () => Promise<any>>
-): Promise<ShadertoyProject> {
-  // Normalize path - handle both "./path" and "path" formats
-  const normalizedPath = demoPath.startsWith('./') ? demoPath : `./${demoPath}`;
-  const configPath = `${normalizedPath}/config.json`;
-  const hasConfig = configPath in jsonFiles;
-
-  if (hasConfig) {
-    const config = await jsonFiles[configPath]();
-    const hasPassConfigs = config.Image || config.BufferA || config.BufferB ||
-                           config.BufferC || config.BufferD;
-
-    if (hasPassConfigs) {
-      return loadWithConfig(normalizedPath, config, glslFiles, imageFiles, scriptFiles);
-    } else {
-      // Config with only settings (layout, controls, etc.) but no passes
-      return loadSinglePass(normalizedPath, glslFiles, config, scriptFiles);
-    }
-  } else {
-    return loadSinglePass(normalizedPath, glslFiles, undefined, scriptFiles);
-  }
-}
-
 /**
  * Load script.js from a demo folder if present.
  */
@@ -111,12 +83,56 @@ async function loadScript(
   return (hooks.setup || hooks.onFrame) ? hooks : null;
 }
 
+export async function loadDemo(
+  demoPath: string,
+  glslFiles: Record<string, () => Promise<string>>,
+  jsonFiles: Record<string, () => Promise<ShadertoyConfig>>,
+  imageFiles: Record<string, () => Promise<string>>,
+  scriptFiles?: Record<string, () => Promise<any>>
+): Promise<ShaderProject> {
+  // Normalize path - handle both "./path" and "path" formats
+  const normalizedPath = demoPath.startsWith('./') ? demoPath : `./${demoPath}`;
+  const configPath = `${normalizedPath}/config.json`;
+  const hasConfig = configPath in jsonFiles;
+
+  if (hasConfig) {
+    const config = await jsonFiles[configPath]() as any;
+
+    // Standard mode (default): pass uniforms and scripts through
+    if (config.mode !== 'shadertoy') {
+      const script = await loadScript(normalizedPath, scriptFiles);
+      const hasPassConfigs = config.Image || config.BufferA || config.BufferB ||
+                             config.BufferC || config.BufferD;
+      if (hasPassConfigs) {
+        return loadWithConfig(normalizedPath, config, glslFiles, imageFiles, scriptFiles, config.uniforms, script);
+      } else {
+        return loadSinglePass(normalizedPath, glslFiles, config, scriptFiles, config.uniforms, script);
+      }
+    }
+
+    const hasPassConfigs = config.Image || config.BufferA || config.BufferB ||
+                           config.BufferC || config.BufferD;
+
+    if (hasPassConfigs) {
+      return loadWithConfig(normalizedPath, config, glslFiles, imageFiles, scriptFiles);
+    } else {
+      // Config with only settings (layout, controls, etc.) but no passes
+      return loadSinglePass(normalizedPath, glslFiles, config, scriptFiles);
+    }
+  } else {
+    return loadSinglePass(normalizedPath, glslFiles, undefined, scriptFiles);
+  }
+}
+
+
 async function loadSinglePass(
   demoPath: string,
   glslFiles: Record<string, () => Promise<string>>,
   configOverrides?: Partial<ShadertoyConfig>,
-  scriptFiles?: Record<string, () => Promise<any>>
-): Promise<ShadertoyProject> {
+  _scriptFiles?: Record<string, () => Promise<any>>,
+  uniforms?: UniformDefinitions,
+  script?: DemoScriptHooks | null
+): Promise<ShaderProject> {
   const imagePath = `${demoPath}/image.glsl`;
   const actualImagePath = findFileCaseInsensitive(glslFiles, imagePath);
 
@@ -136,6 +152,7 @@ async function loadSinglePass(
   const theme = configOverrides?.theme || 'light';
 
   return {
+    mode: (uniforms ? 'standard' : 'shadertoy') as 'standard' | 'shadertoy',
     root: demoPath,
     meta: {
       title,
@@ -161,8 +178,8 @@ async function loadSinglePass(
       },
     },
     textures: [],
-    uniforms: configOverrides?.uniforms ?? {},
-    script: await loadScript(demoPath, scriptFiles),
+    uniforms: uniforms ?? {},
+    script: script ?? null,
   };
 }
 
@@ -171,8 +188,10 @@ async function loadWithConfig(
   config: ShadertoyConfig,
   glslFiles: Record<string, () => Promise<string>>,
   imageFiles: Record<string, () => Promise<string>>,
-  scriptFiles?: Record<string, () => Promise<any>>
-): Promise<ShadertoyProject> {
+  _scriptFiles?: Record<string, () => Promise<any>>,
+  uniforms?: UniformDefinitions,
+  script?: DemoScriptHooks | null
+): Promise<ShaderProject> {
 
   // Extract pass configs from top level
   const passConfigs = {
@@ -311,6 +330,7 @@ async function loadWithConfig(
   const controls = config.controls ?? true;
 
   return {
+    mode: (uniforms ? 'standard' : 'shadertoy') as 'standard' | 'shadertoy',
     root: demoPath,
     meta: { title, author, description },
     layout,
@@ -321,8 +341,8 @@ async function loadWithConfig(
     commonSource,
     passes,
     textures,
-    uniforms: config.uniforms ?? {},
-    script: await loadScript(demoPath, scriptFiles),
+    uniforms: uniforms ?? {},
+    script: script ?? null,
   };
 }
 

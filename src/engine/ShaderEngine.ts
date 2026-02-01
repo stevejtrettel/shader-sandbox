@@ -11,7 +11,7 @@
  */
 
 import {
-  ShadertoyProject,
+  ShaderProject,
   ChannelSource,
   PassName,
   UniformValue,
@@ -86,7 +86,7 @@ vec2 _st_dirToEquirect(vec3 dir) {
 const PREAMBLE_LINE_COUNT = (FRAGMENT_PREAMBLE.match(/\n/g) || []).length;
 
 // =============================================================================
-// ShadertoyEngine Implementation
+// ShaderEngine Implementation
 // =============================================================================
 
 /** Runtime state for a single UBO-backed array uniform */
@@ -101,8 +101,8 @@ interface UBOEntry {
   paddedData: Float32Array;
 }
 
-export class ShadertoyEngine {
-  readonly project: ShadertoyProject;
+export class ShaderEngine {
+  readonly project: ShaderProject;
   readonly gl: WebGL2RenderingContext;
 
   private _width: number;
@@ -136,6 +136,9 @@ export class ShadertoyEngine {
 
   // UBO-backed array uniforms
   private _ubos: UBOEntry[] = [];
+
+  // Dirty tracking for scalar uniforms (only re-bind when changed)
+  private _dirtyScalars: Set<string> = new Set();
 
   // Audio texture (microphone FFT + waveform)
   private _audioTexture: RuntimeAudioTexture | null = null;
@@ -190,6 +193,13 @@ export class ShadertoyEngine {
   private initCustomUniforms(): void {
     this._uniforms = new UniformStore(this.project.uniforms);
     this.initUBOs();
+
+    // Mark all scalar uniforms dirty so they bind on the first frame
+    for (const [name, def] of Object.entries(this.project.uniforms)) {
+      if (!isArrayUniform(def)) {
+        this._dirtyScalars.add(name);
+      }
+    }
   }
 
   /**
@@ -592,33 +602,44 @@ export class ShadertoyEngine {
         console.warn(`setUniformValue('${name}'): expected boolean, got ${typeof value}`);
         return;
       }
-      if ((t === 'vec2' || t === 'vec3' || t === 'vec4') && !Array.isArray(value)) {
-        console.warn(`setUniformValue('${name}'): expected array for ${t}, got ${typeof value}`);
-        return;
+      if (t === 'vec2' || t === 'vec3' || t === 'vec4') {
+        if (!Array.isArray(value)) {
+          console.warn(`setUniformValue('${name}'): expected array for ${t}, got ${typeof value}`);
+          return;
+        }
+        const expected = t === 'vec2' ? 2 : t === 'vec3' ? 3 : 4;
+        if (value.length !== expected) {
+          console.warn(`setUniformValue('${name}'): expected array of length ${expected} for ${t}, got ${value.length}`);
+          return;
+        }
       }
     }
 
+    // Store validated value
     this._uniforms.set(name, value);
 
     // If this is an array uniform, pack and mark dirty
     if (isArrayUniform(def)) {
       const ubo = this._ubos.find(u => u.name === name);
-      if (ubo && value instanceof Float32Array) {
+      if (ubo) {
         const expectedLength = tightFloatCount(def.type, def.count);
-        if (value.length !== expectedLength) {
+        if ((value as Float32Array).length !== expectedLength) {
           console.warn(
             `setUniformValue('${name}'): expected Float32Array of length ${expectedLength} ` +
-            `(${def.count} × ${def.type}), got ${value.length}`
+            `(${def.count} × ${def.type}), got ${(value as Float32Array).length}`
           );
           return;
         }
-        const packed = packStd140(def.type, def.count, value, ubo.paddedData);
+        const packed = packStd140(def.type, def.count, value as Float32Array, ubo.paddedData);
         // Fast-path types (vec4, mat4) return input directly; copy into paddedData
         if (packed !== ubo.paddedData) {
           ubo.paddedData.set(packed);
         }
         ubo.dirty = true;
       }
+    } else {
+      // Mark scalar uniform as dirty
+      this._dirtyScalars.add(name);
     }
   }
 
@@ -762,6 +783,9 @@ export class ShadertoyEngine {
       this.swapPassTextures(runtimePass);
     }
 
+    // Clear scalar dirty flags after all passes have been bound
+    this._dirtyScalars.clear();
+
     // Monotone frame counter (increment AFTER all passes)
     this._frame += 1;
   }
@@ -890,7 +914,7 @@ export class ShadertoyEngine {
     }
 
     // Build new fragment shader
-    const fragmentSource = this.buildFragmentShader(newSource, projectPass.channels);
+    const fragmentSource = this.buildFragmentShader(newSource, projectPass.channels, projectPass.namedSamplers);
 
     try {
       // Try to compile new program
@@ -900,13 +924,20 @@ export class ShadertoyEngine {
       gl.deleteProgram(runtimePass.uniforms.program);
 
       // Cache new uniform locations
-      runtimePass.uniforms = this.cacheUniformLocations(newProgram);
+      runtimePass.uniforms = this.cacheUniformLocations(newProgram, projectPass.namedSamplers);
 
       // Update the stored source in the project
       projectPass.glslSource = newSource;
 
       // Clear any previous compilation errors for this pass
       this._compilationErrors = this._compilationErrors.filter(e => e.passName !== passName);
+
+      // Mark all scalar uniforms dirty so they bind to the new program
+      for (const [uName, uDef] of Object.entries(this.project.uniforms)) {
+        if (!isArrayUniform(uDef)) {
+          this._dirtyScalars.add(uName);
+        }
+      }
 
       return { success: true };
     } catch (err) {
@@ -1032,7 +1063,7 @@ export class ShadertoyEngine {
    * Cache uniform locations for a compiled program.
    * Returns a PassUniformLocations object with all standard and custom uniform locations.
    */
-  private cacheUniformLocations(program: WebGLProgram): PassUniformLocations {
+  private cacheUniformLocations(program: WebGLProgram, namedSamplers?: Map<string, ChannelSource>): PassUniformLocations {
     const gl = this.gl;
 
     // Cache custom uniform locations (skip array uniforms — they use UBOs)
@@ -1082,6 +1113,24 @@ export class ShadertoyEngine {
       iPinchDelta: gl.getUniformLocation(program, 'iPinchDelta'),
       iPinchCenter: gl.getUniformLocation(program, 'iPinchCenter'),
       custom: customLocations,
+      namedSamplers: (() => {
+        const m = new Map<string, WebGLUniformLocation | null>();
+        if (namedSamplers) {
+          for (const [name] of namedSamplers) {
+            m.set(name, gl.getUniformLocation(program, name));
+          }
+        }
+        return m;
+      })(),
+      namedSamplerResolutions: (() => {
+        const m = new Map<string, WebGLUniformLocation | null>();
+        if (namedSamplers) {
+          for (const [name] of namedSamplers) {
+            m.set(name, gl.getUniformLocation(program, `${name}_resolution`));
+          }
+        }
+        return m;
+      })(),
     };
   }
 
@@ -1170,14 +1219,14 @@ export class ShadertoyEngine {
       if (!projectPass) continue;
 
       // Build fragment shader source (outside try so we can access in catch)
-      const fragmentSource = this.buildFragmentShader(projectPass.glslSource, projectPass.channels);
+      const fragmentSource = this.buildFragmentShader(projectPass.glslSource, projectPass.channels, projectPass.namedSamplers);
 
       try {
         // Compile program
         const program = createProgramFromSources(gl, VERTEX_SHADER_SOURCE, fragmentSource);
 
         // Cache uniform locations
-        const uniforms = this.cacheUniformLocations(program);
+        const uniforms = this.cacheUniformLocations(program, projectPass.namedSamplers);
 
         // Create ping-pong textures (MUST allocate both for all passes)
         const currentTexture = createRenderTargetTexture(gl, this._width, this._height);
@@ -1195,6 +1244,7 @@ export class ShadertoyEngine {
           framebuffer,
           currentTexture,
           previousTexture,
+          namedSamplers: projectPass.namedSamplers,
         };
 
         this._passes.push(runtimePass);
@@ -1253,7 +1303,7 @@ export class ShadertoyEngine {
    * @param userSource - The user's GLSL source code
    * @param channels - Channel configuration for this pass (to detect cubemap textures)
    */
-  private buildFragmentShader(userSource: string, channels: ChannelSource[]): string {
+  private buildFragmentShader(userSource: string, channels: ChannelSource[], namedSamplers?: Map<string, ChannelSource>): string {
     const parts: string[] = [FRAGMENT_PREAMBLE];
 
     // Common code (if any)
@@ -1263,8 +1313,37 @@ export class ShadertoyEngine {
       parts.push('');
     }
 
-    // Shadertoy built-in uniforms
-    parts.push(`// Shadertoy built-in uniforms
+    if (namedSamplers && namedSamplers.size > 0) {
+      // Standard mode: named samplers + core time/mouse uniforms (no iChannel)
+      parts.push(`// Core uniforms
+uniform vec3  iResolution;
+uniform float iTime;
+uniform float iTimeDelta;
+uniform int   iFrame;
+uniform vec4  iMouse;
+uniform vec4  iDate;
+uniform float iFrameRate;
+
+// Shader Sandbox touch extensions
+uniform int   iTouchCount;
+uniform vec4  iTouch0;
+uniform vec4  iTouch1;
+uniform vec4  iTouch2;
+uniform float iPinch;
+uniform float iPinchDelta;
+uniform vec2  iPinchCenter;
+`);
+
+      // Named sampler declarations
+      parts.push('// Named samplers');
+      for (const [name] of namedSamplers) {
+        parts.push(`uniform sampler2D ${name};`);
+        parts.push(`uniform vec3 ${name}_resolution;`);
+      }
+      parts.push('');
+    } else {
+      // Shadertoy mode: iChannel0-3
+      parts.push(`// Shadertoy built-in uniforms
 uniform vec3  iResolution;
 uniform float iTime;
 uniform float iTimeDelta;
@@ -1287,8 +1366,12 @@ uniform float iPinch;               // Pinch scale factor (1.0 = no pinch)
 uniform float iPinchDelta;          // Pinch change since last frame
 uniform vec2  iPinchCenter;         // Center point of pinch gesture
 `);
+    }
 
-    // Array uniform blocks (UBOs) - auto-injected so user doesn't need to declare them
+    // Array uniform blocks (UBOs) - auto-injected so user doesn't need to declare them.
+    // Each block is named with a `_ub_` prefix (e.g., `_ub_matrices`) to avoid
+    // collisions with user code. The array inside uses the original uniform name,
+    // so shader code references it directly (e.g., `matrices[i]`).
     for (const ubo of this._ubos) {
       parts.push(`// Array uniform: ${ubo.name}`);
       parts.push(`layout(std140) uniform _ub_${ubo.name} {`);
@@ -1403,8 +1486,12 @@ void main() {
     // Bind custom uniforms
     this.bindCustomUniforms(runtimePass.uniforms);
 
-    // Bind iChannel textures and their resolutions
-    this.bindChannelTextures(runtimePass);
+    // Bind textures: named samplers (standard mode) or iChannels (shadertoy mode)
+    if (runtimePass.namedSamplers && runtimePass.namedSamplers.size > 0) {
+      this.bindNamedSamplers(runtimePass);
+    } else {
+      this.bindChannelTextures(runtimePass);
+    }
 
     // Draw fullscreen triangle
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -1503,9 +1590,13 @@ void main() {
       ubo.dirty = false;
     }
 
-    for (const [name, def, value] of this._uniforms.entries()) {
-      // Skip array uniforms — they're handled via UBOs above
-      if (isArrayUniform(def)) continue;
+    // Only re-bind scalar uniforms that have changed since last frame
+    for (const name of this._dirtyScalars) {
+      const def = this.project.uniforms[name];
+      if (!def || isArrayUniform(def)) continue;
+
+      const value = this._uniforms.get(name);
+      if (value === undefined) continue;
 
       const location = uniforms.custom.get(name);
       if (!location) continue;
@@ -1562,6 +1653,31 @@ void main() {
       if (resLoc) {
         gl.uniform3f(resLoc, resolution[0], resolution[1], 1.0);
       }
+    }
+  }
+
+  /**
+   * Bind named samplers (standard mode).
+   * Each named sampler gets its own texture unit.
+   */
+  private bindNamedSamplers(runtimePass: RuntimePass): void {
+    const gl = this.gl;
+    let textureUnit = 0;
+
+    for (const [name, source] of runtimePass.namedSamplers!) {
+      const texture = this.resolveChannelTexture(source);
+      const resolution = this.resolveChannelResolution(source);
+
+      gl.activeTexture(gl.TEXTURE0 + textureUnit);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+
+      const loc = runtimePass.uniforms.namedSamplers.get(name);
+      if (loc) gl.uniform1i(loc, textureUnit);
+
+      const resLoc = runtimePass.uniforms.namedSamplerResolutions.get(name);
+      if (resLoc) gl.uniform3f(resLoc, resolution[0], resolution[1], 1.0);
+
+      textureUnit++;
     }
   }
 

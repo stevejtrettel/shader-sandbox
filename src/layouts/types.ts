@@ -2,7 +2,7 @@
  * Layout Types - Common interface for all layout modes
  */
 
-import { ShadertoyProject, PassName, UniformValue } from '../project/types';
+import { ShaderProject, PassName, UniformValue } from '../project/types';
 
 /**
  * Result of a recompilation attempt.
@@ -65,7 +65,7 @@ export interface BaseLayout {
  */
 export interface LayoutOptions {
   container: HTMLElement;
-  project: ShadertoyProject;
+  project: ShaderProject;
 }
 
 /**

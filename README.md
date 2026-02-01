@@ -9,11 +9,11 @@ A lightweight, Shadertoy-compatible GLSL shader development environment. Copy sh
 - **Multi-Buffer Rendering** - BufferA-D passes with correct ping-pong semantics
 - **Texture Support** - Load images (including cubemaps) with configurable filtering and wrapping
 - **Keyboard Input** - Full keyboard state via Shadertoy-compatible texture
-- **Audio Input** - Microphone FFT spectrum and waveform as a texture
-- **Webcam & Video** - Live webcam or video files as channel inputs
-- **Custom Uniforms** - Float, int, bool, vec2, vec3, vec4 sliders and color pickers via config
-- **UBO Array Uniforms** - Large data arrays (positions, colors, matrices) via Uniform Buffer Objects
-- **Scripting API** - JavaScript hooks for per-frame computation, texture upload, and GPU readback
+- **Audio Input** - Microphone FFT spectrum and waveform as a texture, as in shadertoy
+- **Webcam & Video** - Live webcam or video files as channel inputs, as in shadertoy
+- **Custom Uniforms** - Float, int, bool, vec2, vec3, vec4 sliders and color pickers via config. *An extension beyond shadertoy*
+- **UBO Array Uniforms** - Large data arrays (positions, colors, matrices) via Uniform Buffer Objects. *An extension beyond shadertoy*
+- **Scripting API** - JavaScript hooks for per-frame computation, texture upload, and GPU readback. *An extension beyond shadertoy*
 - **Touch Support** - Multi-touch, pinch, and gesture uniforms for mobile
 - **Live Code Editing** - Edit shaders in the browser with instant recompilation
 - **Multiple Layouts** - Fullscreen, split-view, or tabbed code display
@@ -175,7 +175,7 @@ Add interactive controls to your shader by defining uniforms in config:
 }
 ```
 
-Uniforms declared in config are **auto-injected** into your shader code — just use them directly:
+Uniforms declared in config are **auto-injected** into your shader code — you don't need to write `uniform` declarations. Just use them directly:
 
 ```glsl
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
@@ -183,6 +183,50 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float t = uAnimate ? iTime * uSpeed : 0.0;
     vec3 col = uColor * (0.5 + 0.5 * sin(uv.x * 10.0 - t));
     fragColor = vec4(col, 1.0);
+}
+```
+
+#### Supported Uniform Types
+
+| Type | UI Control | Config Fields |
+|------|-----------|---------------|
+| `float` | Slider | `value`, `min` (0), `max` (1), `step` (0.01) |
+| `int` | Discrete slider | `value`, `min` (0), `max` (10), `step` (1) |
+| `bool` | Toggle | `value` |
+| `vec2` | XY pad | `value`, `min` ([0,0]), `max` ([1,1]) |
+| `vec3` | 3 sliders or color picker | `value`, `color` (false), `min`, `max`, `step` |
+| `vec4` | 4 sliders or color+alpha picker | `value`, `color` (false), `min`, `max`, `step` |
+
+Set `"hidden": true` on any scalar uniform to exclude it from the UI panel (useful for script-controlled values).
+
+#### Array Uniforms (UBOs)
+
+For large data arrays (positions, matrices, etc.), use array uniforms backed by Uniform Buffer Objects:
+
+```json
+{
+  "uniforms": {
+    "matrices": { "type": "mat3", "count": 128 },
+    "matrixCount": { "type": "int", "value": 1, "hidden": true }
+  }
+}
+```
+
+Array uniforms support types: `float`, `vec2`, `vec3`, `vec4`, `mat3`, `mat4`. They have no UI — data is provided from JavaScript via `engine.setUniformValue()`.
+
+In the compiled shader, array uniforms are wrapped in a `layout(std140)` uniform block with a `_ub_` prefix (e.g., `_ub_matrices`). The array variable itself uses the original name, so you reference it directly in GLSL:
+
+```glsl
+// Auto-injected by the engine (you don't write this):
+// layout(std140) uniform _ub_matrices {
+//   mat3 matrices[128];
+// };
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    for (int i = 0; i < matrixCount; i++) {
+        vec3 p = matrices[i] * vec3(fragCoord, 1.0);
+        // ...
+    }
 }
 ```
 

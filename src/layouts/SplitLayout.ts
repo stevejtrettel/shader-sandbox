@@ -8,11 +8,11 @@
 import './split.css';
 
 import { BaseLayout, LayoutOptions, RecompileHandler, UniformChangeHandler } from './types';
-import { ShadertoyProject } from '../project/types';
+import { ShaderProject } from '../project/types';
 
 export class SplitLayout implements BaseLayout {
   private container: HTMLElement;
-  private project: ShadertoyProject;
+  private project: ShaderProject;
   private root: HTMLElement;
   private canvasContainer: HTMLElement;
   private codePanel: HTMLElement;
