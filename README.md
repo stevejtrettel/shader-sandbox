@@ -8,7 +8,7 @@ A lightweight, Shadertoy-compatible GLSL shader development environment. Copy sh
 - **Full Shadertoy Uniforms** - `iTime`, `iResolution`, `iFrame`, `iMouse`, `iTimeDelta`, `iDate`, `iFrameRate`, `iChannel0-3`
 - **Multi-Buffer Rendering** - BufferA-D passes with correct ping-pong semantics
 - **Texture Support** - Load images (including cubemaps) with configurable filtering and wrapping
-- **Keyboard Input** - Full keyboard state via Shadertoy-compatible texture
+- **Keyboard Input** - Full keyboard state via texture. In standard mode, key constants (`KEY_A`–`KEY_Z`, `KEY_SPACE`, etc.) and helpers (`isKeyDown`, `keyToggle`) are auto-injected
 - **Audio Input** - Microphone FFT spectrum and waveform as a texture, as in shadertoy
 - **Webcam & Video** - Live webcam or video files as channel inputs, as in shadertoy
 - **Custom Uniforms** - Float, int, bool, vec2, vec3, vec4 sliders and color pickers via config. *An extension beyond shadertoy*

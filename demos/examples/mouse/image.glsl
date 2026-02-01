@@ -12,13 +12,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     mouse.x *= iResolution.x / iResolution.y;
     mouse = mouse * 4.0;
 
-    // Circle centered at mouse (only visible while clicking)
+    // Circle centered at last mouse position
     float d = length(p - mouse);
     float r = 0.5;
 
     vec3 color;
-    if (iMouse.z > 0.0 && d < r) {
-        color = vec3(1.0, 0.9, 0.2);
+    if (d < r) {
+        // Bright while dragging, dim when released
+        color = iMousePressed ? vec3(1.0, 0.9, 0.2) : vec3(0.4, 0.35, 0.1);
     } else {
         color = vec3(0.1, 0.1, 0.3);
     }

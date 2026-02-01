@@ -19,7 +19,7 @@ export class SplitLayout implements BaseLayout {
 
   private editorPanel: any = null;
   private recompileHandler: RecompileHandler | null = null;
-  private uniformChangeHandler: UniformChangeHandler | null = null;
+
 
   constructor(opts: LayoutOptions) {
     this.container = opts.container;
@@ -57,11 +57,8 @@ export class SplitLayout implements BaseLayout {
     }
   }
 
-  setUniformHandler(handler: UniformChangeHandler): void {
-    this.uniformChangeHandler = handler;
-    if (this.editorPanel) {
-      this.editorPanel.setUniformHandler(handler);
-    }
+  setUniformHandler(_handler: UniformChangeHandler): void {
+    // TODO: wire up uniform change handler to editor panel
   }
 
   dispose(): void {
@@ -81,9 +78,6 @@ export class SplitLayout implements BaseLayout {
       this.editorPanel = new EditorPanel(this.codePanel, this.project);
       if (this.recompileHandler) {
         this.editorPanel.setRecompileHandler(this.recompileHandler);
-      }
-      if (this.uniformChangeHandler) {
-        this.editorPanel.setUniformHandler(this.uniformChangeHandler);
       }
     } catch (err) {
       console.error('Failed to load editor panel:', err);

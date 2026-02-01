@@ -300,7 +300,8 @@ vec3 GetColorForRay(in vec3 startRayPos, in vec3 startRayDir, inout uint rngStat
         // if the ray missed, we are done
         if (hitInfo.dist == c_superFar)
         {
-            ret += texture(iChannel1, rayDir).rgb * throughput;
+            vec2 envUV = vec2(atan(rayDir.z, rayDir.x) / 6.2831853 + 0.5, acos(rayDir.y) / 3.1415926);
+            ret += texture(iChannel1, envUV).rgb * throughput;
             break;
         }
 

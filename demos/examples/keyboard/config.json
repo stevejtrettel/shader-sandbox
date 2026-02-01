@@ -4,6 +4,6 @@
   "layout": "default",
   "controls": true,
   "textures": {
-    "keys": "keyboard"
+    "keyboard": "keyboard"
   }
 }

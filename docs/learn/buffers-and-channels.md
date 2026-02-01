@@ -299,50 +299,28 @@ Control how textures are sampled:
 
 Read keyboard state through a special keyboard texture.
 
-### Setup
+### Standard Mode (recommended)
+
+Add `"keyboard": "keyboard"` to your textures. The sampler **must** be named `keyboard`.
 
 ```json
 {
-  "passes": {
-    "Image": {
-      "channels": {
-        "iChannel0": {
-          "keyboard": true
-        }
-      }
-    }
+  "textures": {
+    "keyboard": "keyboard"
   }
 }
 ```
 
-### Reading Key States
+The engine auto-injects all key constants and helper functions. Just use them directly:
 
 ```glsl
-const int KEY_W = 87;
-const int KEY_A = 65;
-const int KEY_S = 83;
-const int KEY_D = 68;
-const int KEY_SPACE = 32;
-
-// Read current key state (down = 1.0, up = 0.0)
-float ReadKey(int keycode) {
-    float x = (float(keycode) + 0.5) / 256.0;
-    return texture(iChannel0, vec2(x, 0.25)).x;
-}
-
-// Read toggle state (flips 0.0 <-> 1.0 on each press)
-float ReadKeyToggle(int keycode) {
-    float x = (float(keycode) + 0.5) / 256.0;
-    return texture(iChannel0, vec2(x, 0.75)).x;
-}
-
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
 
     // Move a circle with WASD
     vec2 pos = vec2(0.5);
-    pos.x += (ReadKey(KEY_D) - ReadKey(KEY_A)) * 0.3;
-    pos.y += (ReadKey(KEY_W) - ReadKey(KEY_S)) * 0.3;
+    pos.x += (keyDown(KEY_D) - keyDown(KEY_A)) * 0.3;
+    pos.y += (keyDown(KEY_W) - keyDown(KEY_S)) * 0.3;
 
     float dist = length(uv - pos);
     float circle = smoothstep(0.1, 0.09, dist);
@@ -351,27 +329,63 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 }
 ```
 
-### Common Key Codes
+### Auto-Injected Helper Functions
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `float keyDown(int key)` | `1.0` / `0.0` | Whether key is currently held down |
+| `float keyToggle(int key)` | `1.0` / `0.0` | Flips each time the key is pressed |
+| `bool isKeyDown(int key)` | `true` / `false` | Boolean version of `keyDown` |
+| `bool isKeyToggled(int key)` | `true` / `false` | Boolean version of `keyToggle` |
+
+### Auto-Injected Key Constants
+
+**Letters:**
+`KEY_A` `KEY_B` `KEY_C` `KEY_D` `KEY_E` `KEY_F` `KEY_G` `KEY_H` `KEY_I` `KEY_J` `KEY_K` `KEY_L` `KEY_M` `KEY_N` `KEY_O` `KEY_P` `KEY_Q` `KEY_R` `KEY_S` `KEY_T` `KEY_U` `KEY_V` `KEY_W` `KEY_X` `KEY_Y` `KEY_Z`
+
+**Digits:**
+`KEY_0` `KEY_1` `KEY_2` `KEY_3` `KEY_4` `KEY_5` `KEY_6` `KEY_7` `KEY_8` `KEY_9`
+
+**Arrow keys:**
+`KEY_LEFT` `KEY_UP` `KEY_RIGHT` `KEY_DOWN`
+
+**Special keys:**
+`KEY_SPACE` `KEY_ENTER` `KEY_TAB` `KEY_ESC` `KEY_BACKSPACE` `KEY_DELETE` `KEY_SHIFT` `KEY_CTRL` `KEY_ALT`
+
+**Function keys:**
+`KEY_F1` through `KEY_F12`
+
+### Shadertoy Mode
+
+In Shadertoy mode, bind keyboard to a channel and sample the texture manually:
+
+```json
+{
+  "Image": {
+    "iChannel0": "keyboard"
+  }
+}
+```
 
 ```glsl
-// Letters (uppercase ASCII values)
-const int KEY_A = 65;  // through KEY_Z = 90
+// You must define key codes and sampling functions yourself
+const int KEY_W = 87;
 
-// Numbers
-const int KEY_0 = 48;  // through KEY_9 = 57
-
-// Special keys
-const int KEY_SPACE = 32;
-const int KEY_ENTER = 13;
-const int KEY_SHIFT = 16;
-const int KEY_CTRL = 17;
-
-// Arrow keys
-const int KEY_LEFT = 37;
-const int KEY_UP = 38;
-const int KEY_RIGHT = 39;
-const int KEY_DOWN = 40;
+float ReadKey(int keycode) {
+    float x = (float(keycode) + 0.5) / 256.0;
+    return texture(iChannel0, vec2(x, 0.25)).x;
+}
 ```
+
+### Keyboard Texture Layout
+
+The keyboard texture is 256x3 pixels (one column per ASCII keycode):
+
+| Row | Y coordinate | Contents |
+|-----|-------------|----------|
+| 0 | `0.25` | Current key state (1.0 = down, 0.0 = up) |
+| 1 | `0.50` | Unused |
+| 2 | `0.75` | Toggle state (flips 0↔1 on each press) |
 
 ## Complete Example: Persistent Drawing
 

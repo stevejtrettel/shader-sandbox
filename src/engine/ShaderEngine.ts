@@ -82,6 +82,59 @@ vec2 _st_dirToEquirect(vec3 dir) {
 `;
 
 // =============================================================================
+// Keyboard Helpers (auto-injected in standard mode when keyboard texture bound)
+// =============================================================================
+
+const KEYBOARD_HELPERS = `// --- Keyboard helpers (auto-injected) ---
+// Letter keys
+const int KEY_A = 65; const int KEY_B = 66; const int KEY_C = 67; const int KEY_D = 68;
+const int KEY_E = 69; const int KEY_F = 70; const int KEY_G = 71; const int KEY_H = 72;
+const int KEY_I = 73; const int KEY_J = 74; const int KEY_K = 75; const int KEY_L = 76;
+const int KEY_M = 77; const int KEY_N = 78; const int KEY_O = 79; const int KEY_P = 80;
+const int KEY_Q = 81; const int KEY_R = 82; const int KEY_S = 83; const int KEY_T = 84;
+const int KEY_U = 85; const int KEY_V = 86; const int KEY_W = 87; const int KEY_X = 88;
+const int KEY_Y = 89; const int KEY_Z = 90;
+
+// Digit keys
+const int KEY_0 = 48; const int KEY_1 = 49; const int KEY_2 = 50; const int KEY_3 = 51;
+const int KEY_4 = 52; const int KEY_5 = 53; const int KEY_6 = 54; const int KEY_7 = 55;
+const int KEY_8 = 56; const int KEY_9 = 57;
+
+// Arrow keys
+const int KEY_LEFT = 37; const int KEY_UP = 38; const int KEY_RIGHT = 39; const int KEY_DOWN = 40;
+
+// Special keys
+const int KEY_SPACE = 32;
+const int KEY_ENTER = 13;
+const int KEY_TAB = 9;
+const int KEY_ESC = 27;
+const int KEY_BACKSPACE = 8;
+const int KEY_DELETE = 46;
+const int KEY_SHIFT = 16;
+const int KEY_CTRL = 17;
+const int KEY_ALT = 18;
+
+// Function keys
+const int KEY_F1 = 112; const int KEY_F2 = 113; const int KEY_F3 = 114; const int KEY_F4 = 115;
+const int KEY_F5 = 116; const int KEY_F6 = 117; const int KEY_F7 = 118; const int KEY_F8 = 119;
+const int KEY_F9 = 120; const int KEY_F10 = 121; const int KEY_F11 = 122; const int KEY_F12 = 123;
+
+// Returns 1.0 if key is held down, 0.0 otherwise
+float keyDown(int key) {
+  return textureLod(keyboard, vec2((float(key) + 0.5) / 256.0, 0.25), 0.0).x;
+}
+
+// Returns 1.0/0.0, toggling each time the key is pressed
+float keyToggle(int key) {
+  return textureLod(keyboard, vec2((float(key) + 0.5) / 256.0, 0.75), 0.0).x;
+}
+
+// Boolean convenience helpers
+bool isKeyDown(int key) { return keyDown(key) > 0.5; }
+bool isKeyToggled(int key) { return keyToggle(key) > 0.5; }
+`;
+
+// =============================================================================
 // ShaderEngine Implementation
 // =============================================================================
 
@@ -746,7 +799,7 @@ export class ShaderEngine {
    * @param mouse - iMouse as [x, y, clickX, clickY]
    * @param touch - optional touch state for touch uniforms
    */
-  step(timeSeconds: number, mouse: [number, number, number, number], mouseDown: [number, number], touch?: {
+  step(timeSeconds: number, mouse: [number, number, number, number], mousePressed: boolean, touch?: {
     count: number;
     touches: [[number, number, number, number], [number, number, number, number], [number, number, number, number]];
     pinch: number;
@@ -766,7 +819,7 @@ export class ShaderEngine {
     const iTimeDelta = deltaTime;
     const iFrame = this._frame;
     const iMouse = mouse;
-    const iMouseDown = mouseDown;
+    const iMousePressed = mousePressed;
 
     // Compute iDate: (year, month, day, seconds since midnight)
     const now = new Date();
@@ -805,7 +858,7 @@ export class ShaderEngine {
         iTimeDelta,
         iFrame,
         iMouse,
-        iMouseDown,
+        iMousePressed,
         iDate,
         iFrameRate,
         iTouchCount: touchState.count,
@@ -1125,7 +1178,7 @@ export class ShaderEngine {
       iTimeDelta: gl.getUniformLocation(program, 'iTimeDelta'),
       iFrame: gl.getUniformLocation(program, 'iFrame'),
       iMouse: gl.getUniformLocation(program, 'iMouse'),
-      iMouseDown: gl.getUniformLocation(program, 'iMouseDown'),
+      iMousePressed: gl.getUniformLocation(program, 'iMousePressed'),
       iDate: gl.getUniformLocation(program, 'iDate'),
       iFrameRate: gl.getUniformLocation(program, 'iFrameRate'),
       iChannel: [
@@ -1351,7 +1404,7 @@ uniform float iTime;
 uniform float iTimeDelta;
 uniform int   iFrame;
 uniform vec4  iMouse;
-uniform vec2  iMouseDown;
+uniform bool  iMousePressed;
 uniform vec4  iDate;
 uniform float iFrameRate;
 
@@ -1372,6 +1425,12 @@ uniform vec2  iPinchCenter;
         parts.push(`uniform vec3 ${name}_resolution;`);
       }
       parts.push('');
+
+      // Auto-inject keyboard constants and helpers when keyboard texture is bound
+      if (namedSamplers.has('keyboard')) {
+        parts.push(KEYBOARD_HELPERS);
+        parts.push('');
+      }
     } else {
       // Shadertoy mode: iChannel0-3
       parts.push(`// Shadertoy built-in uniforms
@@ -1380,7 +1439,7 @@ uniform float iTime;
 uniform float iTimeDelta;
 uniform int   iFrame;
 uniform vec4  iMouse;
-uniform vec2  iMouseDown;
+uniform bool  iMousePressed;
 uniform vec4  iDate;
 uniform float iFrameRate;
 uniform vec3  iChannelResolution[4];
@@ -1514,7 +1573,7 @@ void main() {
       iTimeDelta: number;
       iFrame: number;
       iMouse: [number, number, number, number];
-      iMouseDown: [number, number];
+      iMousePressed: boolean;
       iDate: readonly [number, number, number, number];
       iFrameRate: number;
       iTouchCount: number;
@@ -1565,7 +1624,7 @@ void main() {
       iTimeDelta: number;
       iFrame: number;
       iMouse: [number, number, number, number];
-      iMouseDown: [number, number];
+      iMousePressed: boolean;
       iDate: readonly [number, number, number, number];
       iFrameRate: number;
       iTouchCount: number;
@@ -1597,8 +1656,8 @@ void main() {
       gl.uniform4f(uniforms.iMouse, values.iMouse[0], values.iMouse[1], values.iMouse[2], values.iMouse[3]);
     }
 
-    if (uniforms.iMouseDown) {
-      gl.uniform2f(uniforms.iMouseDown, values.iMouseDown[0], values.iMouseDown[1]);
+    if (uniforms.iMousePressed) {
+      gl.uniform1i(uniforms.iMousePressed, values.iMousePressed ? 1 : 0);
     }
 
     if (uniforms.iDate) {

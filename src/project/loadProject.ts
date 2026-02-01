@@ -232,7 +232,7 @@ function validateUniforms(uniforms: UniformDefinitions, root: string): void {
       case 'float':
       case 'int':
         if (typeof def.value !== 'number') {
-          throw new Error(`${prefix}: 'value' must be a number for type '${def.type}', got ${typeof def.value}`);
+          throw new Error(`${prefix}: 'value' must be a number for type '${(def as any).type}', got ${typeof (def as any).value}`);
         }
         if (def.min !== undefined && typeof def.min !== 'number') {
           throw new Error(`${prefix}: 'min' must be a number`);
@@ -247,7 +247,7 @@ function validateUniforms(uniforms: UniformDefinitions, root: string): void {
 
       case 'bool':
         if (typeof def.value !== 'boolean') {
-          throw new Error(`${prefix}: 'value' must be a boolean for type 'bool', got ${typeof def.value}`);
+          throw new Error(`${prefix}: 'value' must be a boolean for type 'bool', got ${typeof (def as any).value}`);
         }
         break;
 

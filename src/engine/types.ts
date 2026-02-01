@@ -46,7 +46,7 @@ export interface PassUniformLocations {
   iTimeDelta: WebGLUniformLocation | null;
   iFrame: WebGLUniformLocation | null;
   iMouse: WebGLUniformLocation | null;
-  iMouseDown: WebGLUniformLocation | null;
+  iMousePressed: WebGLUniformLocation | null;
   iDate: WebGLUniformLocation | null;
   iFrameRate: WebGLUniformLocation | null;
 

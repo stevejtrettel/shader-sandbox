@@ -256,16 +256,26 @@ Place files in the same folder as your config.
 
 Read keyboard input as a texture.
 
+**Shadertoy mode:**
 ```json
 "iChannel0": "keyboard"
 ```
 
-Or:
+**Standard mode** (named sampler — must be called `keyboard`):
 ```json
-"iChannel0": { "keyboard": true }
+"textures": {
+  "keyboard": "keyboard"
+}
 ```
 
-See [Buffers and Channels — Keyboard Input](buffers-and-channels.md#keyboard-input) for texture layout details.
+In standard mode, the engine auto-injects key constants and helper functions so you can write:
+
+```glsl
+if (isKeyDown(KEY_W)) { /* move up */ }
+if (isKeyToggled(KEY_C)) { /* toggle effect */ }
+```
+
+See [Buffers and Channels — Keyboard Input](buffers-and-channels.md#keyboard-input) for the full list of available key constants and helper functions.
 
 ### Audio (Microphone)
 
