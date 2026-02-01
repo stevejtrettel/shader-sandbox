@@ -1,17 +1,33 @@
 /**
- * Helper functions for loading demo files
- * Called by the generated loader
+ * Helper functions for loading demo files in the browser.
+ * Called by the generated loader (Vite import.meta.glob).
  */
 
 import {
   ShaderProject,
-  ShadertoyConfig,
+  ProjectConfig,
   PassName,
-  ChannelValue,
-  ChannelJSONObject,
+  ChannelSource,
+  Channels,
+  ShaderTexture2D,
   UniformDefinitions,
   DemoScriptHooks,
+  StandardBufferConfig,
 } from './types';
+import {
+  parseChannelValue,
+  defaultSourceForPass,
+  PASS_ORDER,
+  BUFFER_PASS_NAMES,
+  CHANNEL_KEYS,
+  DEFAULT_LAYOUT,
+  DEFAULT_CONTROLS,
+  DEFAULT_THEME,
+} from './configHelpers';
+
+// =============================================================================
+// Case-Insensitive File Lookup
+// =============================================================================
 
 /**
  * Case-insensitive file lookup helper.
@@ -21,10 +37,7 @@ function findFileCaseInsensitive<T>(
   files: Record<string, T>,
   path: string
 ): string | null {
-  // First try exact match
   if (path in files) return path;
-
-  // Try case-insensitive match
   const lowerPath = path.toLowerCase();
   for (const key of Object.keys(files)) {
     if (key.toLowerCase() === lowerPath) {
@@ -34,34 +47,10 @@ function findFileCaseInsensitive<T>(
   return null;
 }
 
-/**
- * Type guard for PassName.
- */
-function isPassName(s: string): s is PassName {
-  return s === 'Image' || s === 'BufferA' || s === 'BufferB' || s === 'BufferC' || s === 'BufferD';
-}
+// =============================================================================
+// Script Loading
+// =============================================================================
 
-/**
- * Parse a channel value (string shorthand or object) into normalized ChannelJSONObject.
- */
-function parseChannelValue(value: ChannelValue): ChannelJSONObject | null {
-  if (typeof value === 'string') {
-    if (isPassName(value)) {
-      return { buffer: value };
-    }
-    if (value === 'keyboard') {
-      return { keyboard: true };
-    }
-    if (value === 'audio') {
-      return { audio: true };
-    }
-    if (value === 'webcam') {
-      return { webcam: true };
-    }
-    return { texture: value };
-  }
-  return value;
-}
 /**
  * Load script.js from a demo folder if present.
  */
@@ -83,53 +72,157 @@ async function loadScript(
   return (hooks.setup || hooks.onFrame) ? hooks : null;
 }
 
+// =============================================================================
+// Common Source Loading
+// =============================================================================
+
+/**
+ * Load common.glsl source (explicit path or default).
+ */
+async function loadCommonSource(
+  demoPath: string,
+  glslFiles: Record<string, () => Promise<string>>,
+  commonPath?: string
+): Promise<string | null> {
+  if (commonPath) {
+    const fullPath = `${demoPath}/${commonPath}`;
+    const actualPath = findFileCaseInsensitive(glslFiles, fullPath);
+    return actualPath ? await glslFiles[actualPath]() : null;
+  }
+  // Check for default common.glsl
+  const defaultPath = `${demoPath}/common.glsl`;
+  const actualPath = findFileCaseInsensitive(glslFiles, defaultPath);
+  return actualPath ? await glslFiles[actualPath]() : null;
+}
+
+// =============================================================================
+// Channel Normalization
+// =============================================================================
+
+/**
+ * Normalize a channel value into a ChannelSource.
+ */
+function normalizeChannel(
+  channelValue: any,
+  texturePathToName?: Map<string, string>
+): ChannelSource {
+  if (!channelValue) return { kind: 'none' };
+
+  const parsed = parseChannelValue(channelValue);
+  if (!parsed) return { kind: 'none' };
+
+  if ('buffer' in parsed) {
+    return { kind: 'buffer', buffer: parsed.buffer, current: !!parsed.current };
+  }
+  if ('texture' in parsed) {
+    const textureName = texturePathToName?.get(parsed.texture) || parsed.texture;
+    return { kind: 'texture', name: textureName, cubemap: parsed.type === 'cubemap' };
+  }
+  if ('keyboard' in parsed) return { kind: 'keyboard' };
+  if ('audio' in parsed) return { kind: 'audio' };
+  if ('webcam' in parsed) return { kind: 'webcam' };
+  if ('video' in parsed) return { kind: 'video', src: (parsed as any).video };
+  if ('script' in parsed) return { kind: 'script', name: (parsed as any).script };
+
+  return { kind: 'none' };
+}
+
+// =============================================================================
+// Named Buffers Normalization (Standard Mode)
+// =============================================================================
+
+/**
+ * Normalize buffers config: array shorthand to object form.
+ */
+function normalizeBuffersConfig(
+  buffers: string[] | Record<string, StandardBufferConfig> | undefined
+): Record<string, StandardBufferConfig> {
+  if (!buffers) return {};
+  if (Array.isArray(buffers)) {
+    const result: Record<string, StandardBufferConfig> = {};
+    for (const name of buffers) {
+      result[name] = {};
+    }
+    return result;
+  }
+  return buffers;
+}
+
+// =============================================================================
+// Title Helper
+// =============================================================================
+
+/**
+ * Generate a display title from a demo path.
+ * e.g. "./demos/my-shader" → "My Shader"
+ */
+function titleFromPath(demoPath: string): string {
+  const demoName = demoPath.split('/').pop() || demoPath;
+  return demoName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+// =============================================================================
+// Main Entry Point
+// =============================================================================
+
 export async function loadDemo(
   demoPath: string,
   glslFiles: Record<string, () => Promise<string>>,
-  jsonFiles: Record<string, () => Promise<ShadertoyConfig>>,
+  jsonFiles: Record<string, () => Promise<ProjectConfig>>,
   imageFiles: Record<string, () => Promise<string>>,
   scriptFiles?: Record<string, () => Promise<any>>
 ): Promise<ShaderProject> {
-  // Normalize path - handle both "./path" and "path" formats
+  // Normalize path
   const normalizedPath = demoPath.startsWith('./') ? demoPath : `./${demoPath}`;
   const configPath = `${normalizedPath}/config.json`;
   const hasConfig = configPath in jsonFiles;
 
-  if (hasConfig) {
-    const config = await jsonFiles[configPath]() as any;
-
-    // Standard mode (default): pass uniforms and scripts through
-    if (config.mode !== 'shadertoy') {
-      const script = await loadScript(normalizedPath, scriptFiles);
-      const hasPassConfigs = config.Image || config.BufferA || config.BufferB ||
-                             config.BufferC || config.BufferD;
-      if (hasPassConfigs) {
-        return loadWithConfig(normalizedPath, config, glslFiles, imageFiles, scriptFiles, config.uniforms, script);
-      } else {
-        return loadSinglePass(normalizedPath, glslFiles, config, scriptFiles, config.uniforms, script);
-      }
-    }
-
-    const hasPassConfigs = config.Image || config.BufferA || config.BufferB ||
-                           config.BufferC || config.BufferD;
-
-    if (hasPassConfigs) {
-      return loadWithConfig(normalizedPath, config, glslFiles, imageFiles, scriptFiles);
-    } else {
-      // Config with only settings (layout, controls, etc.) but no passes
-      return loadSinglePass(normalizedPath, glslFiles, config, scriptFiles);
-    }
-  } else {
-    return loadSinglePass(normalizedPath, glslFiles, undefined, scriptFiles);
+  if (!hasConfig) {
+    // No config = simple single-pass project
+    return loadSinglePass(normalizedPath, glslFiles, 'standard');
   }
+
+  const config = await jsonFiles[configPath]();
+  const mode: 'shadertoy' | 'standard' = config.mode === 'shadertoy' ? 'shadertoy' : 'standard';
+
+  // Load script hooks (available in both modes)
+  const script = await loadScript(normalizedPath, scriptFiles);
+
+  // Get uniforms (only from standard mode configs)
+  const uniforms = mode === 'standard' && 'uniforms' in config ? config.uniforms : undefined;
+
+  // Check if config uses named buffers (standard mode only)
+  const hasNamedBuffers = mode === 'standard' && 'buffers' in config && config.buffers;
+
+  if (hasNamedBuffers) {
+    return loadStandardWithNamedBuffers(
+      normalizedPath, config as any, glslFiles, imageFiles, uniforms, script
+    );
+  }
+
+  // Check for pass-level configs (Image, BufferA, etc.)
+  const hasPassConfigs = config.Image || config.BufferA || config.BufferB ||
+                         config.BufferC || config.BufferD;
+
+  if (hasPassConfigs) {
+    return loadWithPassConfigs(
+      normalizedPath, config, glslFiles, imageFiles, mode, uniforms, script
+    );
+  }
+
+  // Config with only settings (layout, controls, etc.) but no passes
+  return loadSinglePass(normalizedPath, glslFiles, mode, config, uniforms, script);
 }
 
+// =============================================================================
+// Single Pass (no pass configs in JSON)
+// =============================================================================
 
 async function loadSinglePass(
   demoPath: string,
   glslFiles: Record<string, () => Promise<string>>,
-  configOverrides?: Partial<ShadertoyConfig>,
-  _scriptFiles?: Record<string, () => Promise<any>>,
+  mode: 'shadertoy' | 'standard',
+  configOverrides?: Partial<ProjectConfig>,
   uniforms?: UniformDefinitions,
   script?: DemoScriptHooks | null
 ): Promise<ShaderProject> {
@@ -141,27 +234,19 @@ async function loadSinglePass(
   }
 
   const imageSource = await glslFiles[actualImagePath]();
-
-  const layout = configOverrides?.layout || 'tabbed';
-  const controls = configOverrides?.controls ?? true;
-  // Extract name from path for title (e.g., "./shaders/example-gradient" -> "example-gradient")
-  const demoName = demoPath.split('/').pop() || demoPath;
-  const title = configOverrides?.title ||
-                demoName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-  const theme = configOverrides?.theme || 'light';
+  const title = configOverrides?.title || titleFromPath(demoPath);
 
   return {
-    mode: (uniforms ? 'standard' : 'shadertoy') as 'standard' | 'shadertoy',
+    mode,
     root: demoPath,
     meta: {
       title,
       author: configOverrides?.author || null,
       description: configOverrides?.description || null,
     },
-    layout,
-    theme,
-    controls,
+    layout: configOverrides?.layout ?? DEFAULT_LAYOUT,
+    theme: configOverrides?.theme ?? DEFAULT_THEME,
+    controls: configOverrides?.controls ?? DEFAULT_CONTROLS,
     startPaused: configOverrides?.startPaused ?? false,
     pixelRatio: configOverrides?.pixelRatio ?? null,
     commonSource: null,
@@ -183,17 +268,20 @@ async function loadSinglePass(
   };
 }
 
-async function loadWithConfig(
+// =============================================================================
+// Pass-Config Mode (both shadertoy and standard with Image/BufferA/etc.)
+// =============================================================================
+
+async function loadWithPassConfigs(
   demoPath: string,
-  config: ShadertoyConfig,
+  config: ProjectConfig,
   glslFiles: Record<string, () => Promise<string>>,
   imageFiles: Record<string, () => Promise<string>>,
-  _scriptFiles?: Record<string, () => Promise<any>>,
+  mode: 'shadertoy' | 'standard',
   uniforms?: UniformDefinitions,
   script?: DemoScriptHooks | null
 ): Promise<ShaderProject> {
 
-  // Extract pass configs from top level
   const passConfigs = {
     Image: config.Image,
     BufferA: config.BufferA,
@@ -203,41 +291,26 @@ async function loadWithConfig(
   };
 
   // Load common source
-  let commonSource: string | null = null;
-  if (config.common) {
-    const commonPath = `${demoPath}/${config.common}`;
-    const actualCommonPath = findFileCaseInsensitive(glslFiles, commonPath);
-    if (actualCommonPath) {
-      commonSource = await glslFiles[actualCommonPath]();
-    }
-  } else {
-    const defaultCommonPath = `${demoPath}/common.glsl`;
-    const actualCommonPath = findFileCaseInsensitive(glslFiles, defaultCommonPath);
-    if (actualCommonPath) {
-      commonSource = await glslFiles[actualCommonPath]();
-    }
-  }
+  const commonSource = await loadCommonSource(demoPath, glslFiles, config.common);
 
-  // Collect all texture references with their config options
+  // Collect texture references for deduplication
   interface TextureRef {
     path: string;
     filter: 'nearest' | 'linear';
     wrap: 'clamp' | 'repeat';
   }
   const textureRefs = new Map<string, TextureRef>();
-  const passOrder = ['Image', 'BufferA', 'BufferB', 'BufferC', 'BufferD'] as const;
 
-  for (const passName of passOrder) {
+  for (const passName of PASS_ORDER) {
     const passConfig = passConfigs[passName];
     if (!passConfig) continue;
 
-    for (const channelKey of ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3'] as const) {
+    for (const channelKey of CHANNEL_KEYS) {
       const channelValue = passConfig[channelKey];
       if (!channelValue) continue;
 
       const parsed = parseChannelValue(channelValue);
       if (parsed && 'texture' in parsed) {
-        // Only store the first reference's options (deduplicated by path)
         if (!textureRefs.has(parsed.texture)) {
           textureRefs.set(parsed.texture, {
             path: parsed.texture,
@@ -250,7 +323,7 @@ async function loadWithConfig(
   }
 
   // Load textures
-  const textures: any[] = [];
+  const textures: ShaderTexture2D[] = [];
   const texturePathToName = new Map<string, string>();
 
   for (const [texturePath, ref] of textureRefs) {
@@ -277,21 +350,13 @@ async function loadWithConfig(
   }
 
   // Build passes
-  const passes: any = {};
+  const passes: ShaderProject['passes'] = {} as any;
 
-  for (const passName of passOrder) {
+  for (const passName of PASS_ORDER) {
     const passConfig = passConfigs[passName];
     if (!passConfig) continue;
 
-    const defaultNames: Record<string, string> = {
-      Image: 'image.glsl',
-      BufferA: 'bufferA.glsl',
-      BufferB: 'bufferB.glsl',
-      BufferC: 'bufferC.glsl',
-      BufferD: 'bufferD.glsl',
-    };
-
-    const sourceFile = passConfig.source || defaultNames[passName];
+    const sourceFile = passConfig.source || defaultSourceForPass(passName);
     const sourcePath = `${demoPath}/${sourceFile}`;
     const actualSourcePath = findFileCaseInsensitive(glslFiles, sourcePath);
 
@@ -301,41 +366,33 @@ async function loadWithConfig(
 
     const glslSource = await glslFiles[actualSourcePath]();
 
-    const channels = [
+    const channels: Channels = [
       normalizeChannel(passConfig.iChannel0, texturePathToName),
       normalizeChannel(passConfig.iChannel1, texturePathToName),
       normalizeChannel(passConfig.iChannel2, texturePathToName),
       normalizeChannel(passConfig.iChannel3, texturePathToName),
     ];
 
-    passes[passName] = {
-      name: passName,
-      glslSource,
-      channels,
-    };
+    passes[passName] = { name: passName, glslSource, channels };
   }
 
   if (!passes.Image) {
     throw new Error(`Demo '${demoPath}' must have an Image pass`);
   }
 
-  // Extract name from path for title (e.g., "./shaders/example-gradient" -> "example-gradient")
-  const demoName = demoPath.split('/').pop() || demoPath;
-  const title = config.title ||
-                demoName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  const author = config.author || null;
-  const description = config.description || null;
-  const layout = config.layout || 'tabbed';
-  const theme = config.theme || 'light';
-  const controls = config.controls ?? true;
+  const title = config.title || titleFromPath(demoPath);
 
   return {
-    mode: (uniforms ? 'standard' : 'shadertoy') as 'standard' | 'shadertoy',
+    mode,
     root: demoPath,
-    meta: { title, author, description },
-    layout,
-    theme,
-    controls,
+    meta: {
+      title,
+      author: config.author || null,
+      description: config.description || null,
+    },
+    layout: config.layout ?? DEFAULT_LAYOUT,
+    theme: config.theme ?? DEFAULT_THEME,
+    controls: config.controls ?? DEFAULT_CONTROLS,
     startPaused: config.startPaused ?? false,
     pixelRatio: config.pixelRatio ?? null,
     commonSource,
@@ -346,53 +403,146 @@ async function loadWithConfig(
   };
 }
 
-function normalizeChannel(channelValue: ChannelValue | undefined, texturePathToName?: Map<string, string>): any {
-  if (!channelValue) {
-    return { kind: 'none' };
+// =============================================================================
+// Standard Mode with Named Buffers
+// =============================================================================
+
+async function loadStandardWithNamedBuffers(
+  demoPath: string,
+  config: {
+    title?: string;
+    author?: string;
+    description?: string;
+    layout?: 'fullscreen' | 'default' | 'split' | 'tabbed';
+    theme?: any;
+    controls?: boolean;
+    common?: string;
+    startPaused?: boolean;
+    pixelRatio?: number;
+    buffers?: string[] | Record<string, StandardBufferConfig>;
+    textures?: Record<string, string>;
+  },
+  glslFiles: Record<string, () => Promise<string>>,
+  imageFiles: Record<string, () => Promise<string>>,
+  uniforms?: UniformDefinitions,
+  script?: DemoScriptHooks | null
+): Promise<ShaderProject> {
+
+  const buffersConfig = normalizeBuffersConfig(config.buffers);
+  const bufferNames = Object.keys(buffersConfig);
+
+  if (bufferNames.length > 4) {
+    throw new Error(
+      `Standard mode at '${demoPath}' supports max 4 buffers, got ${bufferNames.length}: ${bufferNames.join(', ')}`
+    );
   }
 
-  // Parse string shorthand
-  const parsed = parseChannelValue(channelValue);
-  if (!parsed) {
-    return { kind: 'none' };
+  // Map buffer names → PassNames
+  const bufferNameToPass = new Map<string, PassName>();
+  for (let i = 0; i < bufferNames.length; i++) {
+    bufferNameToPass.set(bufferNames[i], BUFFER_PASS_NAMES[i]);
   }
 
-  if ('buffer' in parsed) {
-    return {
-      kind: 'buffer',
-      buffer: parsed.buffer,
-      current: !!parsed.current,
+  // Texture deduplication
+  const textureMap = new Map<string, ShaderTexture2D>();
+
+  function registerTexture(source: string, filter: 'nearest' | 'linear' = 'linear', wrap: 'clamp' | 'repeat' = 'repeat'): string {
+    const key = `${source}|${filter}|${wrap}`;
+    const existing = textureMap.get(key);
+    if (existing) return existing.name;
+
+    const name = `tex${textureMap.size}`;
+    textureMap.set(key, { name, source, filter, wrap });
+    return name;
+  }
+
+  // Build namedSamplers map (shared by all passes)
+  const namedSamplers = new Map<string, ChannelSource>();
+
+  // Add buffers
+  for (const [bufName, passName] of bufferNameToPass) {
+    namedSamplers.set(bufName, { kind: 'buffer', buffer: passName, current: false });
+  }
+
+  // Add textures
+  for (const [texName, texValue] of Object.entries(config.textures ?? {})) {
+    if (texValue === 'keyboard') {
+      namedSamplers.set(texName, { kind: 'keyboard' });
+    } else if (texValue === 'audio') {
+      namedSamplers.set(texName, { kind: 'audio' });
+    } else if (texValue === 'webcam') {
+      namedSamplers.set(texName, { kind: 'webcam' });
+    } else {
+      // Image file — resolve via imageFiles
+      const fullPath = `${demoPath}/${texValue.replace(/^\.\//, '')}`;
+      const actualPath = findFileCaseInsensitive(imageFiles, fullPath);
+      if (!actualPath) {
+        throw new Error(`Texture not found: ${texValue} (expected at ${fullPath})`);
+      }
+      const imageUrl = await imageFiles[actualPath]();
+      const internalName = registerTexture(imageUrl);
+      namedSamplers.set(texName, { kind: 'texture', name: internalName, cubemap: false });
+    }
+  }
+
+  const noChannels: Channels = [{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }, { kind: 'none' }];
+
+  // Load common source
+  const commonSource = await loadCommonSource(demoPath, glslFiles, config.common);
+
+  // Load Image pass
+  const imagePath = `${demoPath}/image.glsl`;
+  const actualImagePath = findFileCaseInsensitive(glslFiles, imagePath);
+  if (!actualImagePath) {
+    throw new Error(`Standard mode project at '${demoPath}' requires 'image.glsl'.`);
+  }
+  const imageSource = await glslFiles[actualImagePath]();
+
+  const passes: ShaderProject['passes'] = {
+    Image: {
+      name: 'Image',
+      glslSource: imageSource,
+      channels: noChannels,
+      namedSamplers: new Map(namedSamplers),
+    },
+  };
+
+  // Load buffer passes
+  for (const [bufName, passName] of bufferNameToPass) {
+    const sourcePath = `${demoPath}/${bufName}.glsl`;
+    const actualPath = findFileCaseInsensitive(glslFiles, sourcePath);
+    if (!actualPath) {
+      throw new Error(`Buffer '${bufName}' requires '${bufName}.glsl' in '${demoPath}'.`);
+    }
+    const glslSource = await glslFiles[actualPath]();
+
+    passes[passName] = {
+      name: passName,
+      glslSource,
+      channels: noChannels,
+      namedSamplers: new Map(namedSamplers),
     };
   }
 
-  if ('texture' in parsed) {
-    const textureName = texturePathToName?.get(parsed.texture) || parsed.texture;
-    return {
-      kind: 'texture',
-      name: textureName,
-      cubemap: parsed.type === 'cubemap',
-    };
-  }
+  const title = config.title || titleFromPath(demoPath);
 
-  if ('keyboard' in parsed) {
-    return { kind: 'keyboard' };
-  }
-
-  if ('audio' in parsed) {
-    return { kind: 'audio' };
-  }
-
-  if ('webcam' in parsed) {
-    return { kind: 'webcam' };
-  }
-
-  if ('video' in parsed) {
-    return { kind: 'video', src: (parsed as any).video };
-  }
-
-  if ('script' in parsed) {
-    return { kind: 'script', name: (parsed as any).script };
-  }
-
-  return { kind: 'none' };
+  return {
+    mode: 'standard',
+    root: demoPath,
+    meta: {
+      title,
+      author: config.author ?? null,
+      description: config.description ?? null,
+    },
+    layout: config.layout ?? DEFAULT_LAYOUT,
+    theme: config.theme ?? DEFAULT_THEME,
+    controls: config.controls ?? DEFAULT_CONTROLS,
+    startPaused: config.startPaused ?? false,
+    pixelRatio: config.pixelRatio ?? null,
+    commonSource,
+    passes,
+    textures: Array.from(textureMap.values()),
+    uniforms: uniforms ?? {},
+    script: script ?? null,
+  };
 }

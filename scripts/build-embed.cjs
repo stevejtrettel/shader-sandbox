@@ -16,7 +16,7 @@ try {
   // Generate the loader
   const loaderContent = `// Auto-generated - DO NOT EDIT
 import { loadDemo } from './loaderHelper';
-import { ShadertoyConfig } from './types';
+import { ProjectConfig } from './types';
 
 export const DEMO_NAME = '${demo}';
 
@@ -26,7 +26,7 @@ export async function loadDemoProject() {
     import: 'default',
   });
 
-  const jsonFiles = import.meta.glob<ShadertoyConfig>('/demos/${demo}/**/*.json', {
+  const jsonFiles = import.meta.glob<ProjectConfig>('/demos/${demo}/**/*.json', {
     import: 'default',
   });
 

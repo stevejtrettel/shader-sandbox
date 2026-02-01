@@ -301,6 +301,9 @@ export interface PassConfigSimplified {
  * }
  */
 export interface ShadertoyConfig {
+  /** Must be 'shadertoy' to use Shadertoy-compatible iChannel mode. */
+  mode: 'shadertoy';
+
   // Metadata (flat, not nested)
   title?: string;
   author?: string;
@@ -343,6 +346,8 @@ export interface StandardBufferConfig {
 /**
  * Standard mode config format.
  * Buffers and textures are available everywhere by name.
+ * Also supports pass-level configs (Image, BufferA, etc.) for simple cases
+ * where named buffers aren't needed.
  */
 export interface StandardConfig {
   mode?: 'standard';
@@ -375,7 +380,19 @@ export interface StandardConfig {
    * Value is a file path or special source: "keyboard", "audio", "webcam".
    */
   textures?: Record<string, string>;
+
+  // Pass-level configs (for standard mode without named buffers)
+  Image?: PassConfigSimplified;
+  BufferA?: PassConfigSimplified;
+  BufferB?: PassConfigSimplified;
+  BufferC?: PassConfigSimplified;
+  BufferD?: PassConfigSimplified;
 }
+
+/**
+ * Union of all config formats that can appear in config.json.
+ */
+export type ProjectConfig = ShadertoyConfig | StandardConfig;
 
 // =============================================================================
 // Internal Channel Representation (Normalized)
