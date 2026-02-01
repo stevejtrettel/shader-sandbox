@@ -40,10 +40,11 @@ export interface AppOptions {
 }
 
 /**
- * Mouse state for iMouse uniform.
+ * Mouse state for iMouse uniform (Shadertoy spec).
  * Format: [x, y, clickX, clickY]
- * - x, y: current mouse position in pixels
- * - clickX, clickY: position of last click (or -1, -1 if no click)
+ * - x, y: mouse position while button is held (freezes on release)
+ * - clickX, clickY: click origin position (positive while held, negated on release)
+ * The sign of clickX serves as a "mouse is down" signal (z > 0.0 = pressed).
  */
 export type MouseState = [number, number, number, number];
 

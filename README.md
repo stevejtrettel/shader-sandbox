@@ -327,6 +327,81 @@ All standard Shadertoy uniforms are supported:
 | **Space** | Play/Pause |
 | **R** | Reset to frame 0 |
 
+## Recording and Export
+
+### Video Recording
+
+When `controls: true`, click the record button (or use the controls menu) to capture your shader as a WebM video. Recording uses the browser's `MediaRecorder` API at 60fps with VP9 encoding. Click the stop button to end recording — the video downloads automatically.
+
+### HTML Export
+
+Click the export button in the controls menu to generate a standalone HTML file with your shader embedded. The exported file includes:
+- All shader passes and common code
+- Current custom uniform values baked in
+- Full WebGL2 rendering pipeline (no dependencies)
+- Mouse interaction support
+- Resize handling
+
+**Limitations:** Array uniforms (UBOs), audio, webcam, video, and script hooks are not included in the export. Textures are replaced with a procedural checkerboard pattern.
+
+## Embedding as a Library
+
+The package exports its core classes for use in custom applications:
+
+```typescript
+import { App, createLayout, loadDemo } from '@stevejtrettel/shader-sandbox';
+import type { ShaderProject, LayoutMode } from '@stevejtrettel/shader-sandbox';
+```
+
+### Exports
+
+| Export | Description |
+|--------|-------------|
+| `App` | Main application class — creates canvas, engine, and animation loop |
+| `createLayout(mode, options)` | Factory to create a layout (fullscreen, default, split, tabbed) |
+| `applyTheme(mode)` | Apply a theme (light, dark, system) |
+| `loadDemo(files)` | Load a shader project from bundled file data |
+
+### Example: Embedding a shader
+
+```typescript
+import { App, createLayout } from '@stevejtrettel/shader-sandbox';
+
+const project = /* your ShaderProject object */;
+
+const layout = createLayout(project.layout, {
+  container: document.getElementById('shader-container'),
+  project,
+});
+
+const app = new App({
+  container: layout.getCanvasContainer(),
+  project,
+});
+
+if (!app.hasErrors()) {
+  app.start();
+}
+
+// Clean up when done
+app.dispose();
+```
+
+### Embed entry point
+
+For build-time embedding of a specific shader, the package also provides an `embed()` function:
+
+```typescript
+import { embed } from '@stevejtrettel/shader-sandbox/embed';
+
+const { app, destroy } = await embed({
+  container: '#my-container',  // CSS selector or HTMLElement
+  pixelRatio: window.devicePixelRatio,
+});
+
+// Later: destroy() to clean up
+```
+
 ## Building for Production
 
 ```bash

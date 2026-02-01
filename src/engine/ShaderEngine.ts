@@ -21,7 +21,7 @@ import {
 } from '../project/types';
 
 import { UniformStore } from '../uniforms/UniformStore';
-import { std140ByteSize, tightFloatCount, packStd140, glslTypeName } from './std140';
+import { std140ByteSize, std140FloatCount, tightFloatCount, packStd140, glslTypeName } from './std140';
 
 import {
   EngineOptions,
@@ -105,6 +105,8 @@ interface UBOEntry {
   dirty: boolean;
   /** Pre-allocated std140-padded buffer, reused across frames */
   paddedData: Float32Array;
+  /** Number of elements currently active (may be less than def.count) */
+  activeCount: number;
 }
 
 export class ShaderEngine {
@@ -257,6 +259,7 @@ export class ShaderEngine {
         byteSize,
         dirty: false,
         paddedData,
+        activeCount: 0,
       });
 
       bindingPoint++;
@@ -630,19 +633,42 @@ export class ShaderEngine {
     if (isArrayUniform(def)) {
       const ubo = this._ubos.find(u => u.name === name);
       if (ubo) {
-        const expectedLength = tightFloatCount(def.type, def.count);
-        if ((value as Float32Array).length !== expectedLength) {
+        const data = value as Float32Array;
+        const maxLength = tightFloatCount(def.type, def.count);
+        const componentsPerElement = tightFloatCount(def.type, 1);
+
+        if (data.length > maxLength) {
           console.warn(
-            `setUniformValue('${name}'): expected Float32Array of length ${expectedLength} ` +
-            `(${def.count} × ${def.type}), got ${(value as Float32Array).length}`
+            `setUniformValue('${name}'): Float32Array length ${data.length} exceeds max ` +
+            `${maxLength} (${def.count} × ${def.type})`
           );
           return;
         }
-        const packed = packStd140(def.type, def.count, value as Float32Array, ubo.paddedData);
+        if (data.length % componentsPerElement !== 0) {
+          console.warn(
+            `setUniformValue('${name}'): Float32Array length ${data.length} is not a multiple ` +
+            `of ${componentsPerElement} (components per ${def.type})`
+          );
+          return;
+        }
+
+        const actualCount = data.length / componentsPerElement;
+
+        // Pack actual elements into std140 layout
+        const packed = packStd140(def.type, actualCount, data, ubo.paddedData);
         // Fast-path types (vec4, mat4) return input directly; copy into paddedData
         if (packed !== ubo.paddedData) {
           ubo.paddedData.set(packed);
         }
+
+        // Zero-fill the remainder of the buffer beyond the active elements
+        const activeStd140Floats = std140FloatCount(def.type, actualCount);
+        const totalStd140Floats = ubo.paddedData.length;
+        if (activeStd140Floats < totalStd140Floats) {
+          ubo.paddedData.fill(0, activeStd140Floats);
+        }
+
+        ubo.activeCount = actualCount;
         ubo.dirty = true;
       }
     } else {
@@ -720,7 +746,7 @@ export class ShaderEngine {
    * @param mouse - iMouse as [x, y, clickX, clickY]
    * @param touch - optional touch state for touch uniforms
    */
-  step(timeSeconds: number, mouse: [number, number, number, number], touch?: {
+  step(timeSeconds: number, mouse: [number, number, number, number], mouseDown: [number, number], touch?: {
     count: number;
     touches: [[number, number, number, number], [number, number, number, number], [number, number, number, number]];
     pinch: number;
@@ -740,6 +766,7 @@ export class ShaderEngine {
     const iTimeDelta = deltaTime;
     const iFrame = this._frame;
     const iMouse = mouse;
+    const iMouseDown = mouseDown;
 
     // Compute iDate: (year, month, day, seconds since midnight)
     const now = new Date();
@@ -778,6 +805,7 @@ export class ShaderEngine {
         iTimeDelta,
         iFrame,
         iMouse,
+        iMouseDown,
         iDate,
         iFrameRate,
         iTouchCount: touchState.count,
@@ -1081,12 +1109,13 @@ export class ShaderEngine {
       customLocations.set(name, gl.getUniformLocation(program, name));
     }
 
-    // Bind UBO block indices for this program
+    // Bind UBO block indices and cache _count uniform locations for this program
     for (const ubo of this._ubos) {
       const blockIndex = gl.getUniformBlockIndex(program, `_ub_${ubo.name}`);
       if (blockIndex !== gl.INVALID_INDEX) {
         gl.uniformBlockBinding(program, blockIndex, ubo.bindingPoint);
       }
+      customLocations.set(`${ubo.name}_count`, gl.getUniformLocation(program, `${ubo.name}_count`));
     }
 
     return {
@@ -1096,6 +1125,7 @@ export class ShaderEngine {
       iTimeDelta: gl.getUniformLocation(program, 'iTimeDelta'),
       iFrame: gl.getUniformLocation(program, 'iFrame'),
       iMouse: gl.getUniformLocation(program, 'iMouse'),
+      iMouseDown: gl.getUniformLocation(program, 'iMouseDown'),
       iDate: gl.getUniformLocation(program, 'iDate'),
       iFrameRate: gl.getUniformLocation(program, 'iFrameRate'),
       iChannel: [
@@ -1179,7 +1209,9 @@ export class ShaderEngine {
       image.crossOrigin = 'anonymous';
       image.onload = () => {
         gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
         // Set filter
         const filter = texDef.filter === 'nearest' ? gl.NEAREST : gl.LINEAR;
@@ -1319,6 +1351,7 @@ uniform float iTime;
 uniform float iTimeDelta;
 uniform int   iFrame;
 uniform vec4  iMouse;
+uniform vec2  iMouseDown;
 uniform vec4  iDate;
 uniform float iFrameRate;
 
@@ -1347,6 +1380,7 @@ uniform float iTime;
 uniform float iTimeDelta;
 uniform int   iFrame;
 uniform vec4  iMouse;
+uniform vec2  iMouseDown;
 uniform vec4  iDate;
 uniform float iFrameRate;
 uniform vec3  iChannelResolution[4];
@@ -1371,10 +1405,11 @@ uniform vec2  iPinchCenter;         // Center point of pinch gesture
     // collisions with user code. The array inside uses the original uniform name,
     // so shader code references it directly (e.g., `matrices[i]`).
     for (const ubo of this._ubos) {
-      parts.push(`// Array uniform: ${ubo.name}`);
+      parts.push(`// Array uniform: ${ubo.name} (max ${ubo.def.count})`);
       parts.push(`layout(std140) uniform _ub_${ubo.name} {`);
       parts.push(`  ${glslTypeName(ubo.def.type)} ${ubo.name}[${ubo.def.count}];`);
       parts.push(`};`);
+      parts.push(`uniform int ${ubo.name}_count;`);
       parts.push('');
     }
 
@@ -1479,6 +1514,7 @@ void main() {
       iTimeDelta: number;
       iFrame: number;
       iMouse: [number, number, number, number];
+      iMouseDown: [number, number];
       iDate: readonly [number, number, number, number];
       iFrameRate: number;
       iTouchCount: number;
@@ -1529,6 +1565,7 @@ void main() {
       iTimeDelta: number;
       iFrame: number;
       iMouse: [number, number, number, number];
+      iMouseDown: [number, number];
       iDate: readonly [number, number, number, number];
       iFrameRate: number;
       iTouchCount: number;
@@ -1558,6 +1595,10 @@ void main() {
 
     if (uniforms.iMouse) {
       gl.uniform4f(uniforms.iMouse, values.iMouse[0], values.iMouse[1], values.iMouse[2], values.iMouse[3]);
+    }
+
+    if (uniforms.iMouseDown) {
+      gl.uniform2f(uniforms.iMouseDown, values.iMouseDown[0], values.iMouseDown[1]);
     }
 
     if (uniforms.iDate) {
@@ -1601,12 +1642,17 @@ void main() {
   private bindCustomUniforms(uniforms: PassUniformLocations): void {
     const gl = this.gl;
 
-    // Upload dirty UBOs
+    // Upload dirty UBOs; always bind _count (regular uniforms reset per-program use)
     for (const ubo of this._ubos) {
-      if (!ubo.dirty) continue;
-      gl.bindBuffer(gl.UNIFORM_BUFFER, ubo.buffer);
-      gl.bufferSubData(gl.UNIFORM_BUFFER, 0, ubo.paddedData);
-      ubo.dirty = false;
+      if (ubo.dirty) {
+        gl.bindBuffer(gl.UNIFORM_BUFFER, ubo.buffer);
+        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, ubo.paddedData);
+        ubo.dirty = false;
+      }
+      const loc = uniforms.custom.get(`${ubo.name}_count`);
+      if (loc) {
+        gl.uniform1i(loc, ubo.activeCount);
+      }
     }
 
     // Only re-bind scalar uniforms that have changed since last frame

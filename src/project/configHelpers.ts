@@ -189,8 +189,8 @@ export function validateConfig(config: Record<string, any>, root: string): void 
       }
       if (typeof value !== 'string') {
         errors.push(`Texture source for '${name}' must be a string`);
-      } else if (!SPECIAL_TEXTURE_SOURCES.has(value) && !/\.\w+$/.test(value)) {
-        errors.push(`Invalid texture source '${value}' for '${name}'. Expected a file path with extension or one of: ${[...SPECIAL_TEXTURE_SOURCES].join(', ')}`);
+      } else if (!SPECIAL_TEXTURE_SOURCES.has(value) && !/\.\w+$/.test(value) && !isValidGLSLIdentifier(value)) {
+        errors.push(`Invalid texture source '${value}' for '${name}'. Expected a file path with extension, a script texture name, or one of: ${[...SPECIAL_TEXTURE_SOURCES].join(', ')}`);
       }
     }
   }

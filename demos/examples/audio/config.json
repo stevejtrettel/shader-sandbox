@@ -1,0 +1,9 @@
+{
+  "title": "Audio Input",
+  "description": "Microphone FFT spectrum and waveform visualization",
+  "layout": "default",
+  "controls": true,
+  "textures": {
+    "mic": "audio"
+  }
+}

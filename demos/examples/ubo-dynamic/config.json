@@ -1,0 +1,12 @@
+{
+  "title": "UBO Dynamic Count",
+  "layout": "default",
+  "controls": false,
+  "uniforms": {
+    "lights": {
+      "type": "vec4",
+      "count": 16
+    }
+  },
+  "Image": {}
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Equirectangular Texture",
+  "description": "Using an equirectangular image as an environment map",
+  "layout": "default",
+  "controls": true,
+  "textures": {
+    "envMap": "./equirect.jpg"
+  }
+}

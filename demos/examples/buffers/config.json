@@ -1,0 +1,9 @@
+{
+  "title": "Multi-Buffer Feedback",
+  "description": "Conway's Game of Life using named buffer with ping-pong feedback",
+  "layout": "default",
+  "controls": true,
+  "buffers": {
+    "state": { "filter": "nearest" }
+  }
+}

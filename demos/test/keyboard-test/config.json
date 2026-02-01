@@ -1,9 +1,0 @@
-{
-  "mode": "shadertoy",
-  "layout": "default",
-  "controls": true,
-
-  "Image": {
-    "iChannel0": { "keyboard": true }
-  }
-}

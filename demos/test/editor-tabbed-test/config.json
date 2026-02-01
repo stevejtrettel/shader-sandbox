@@ -1,7 +1,0 @@
-{
-  "title": "Editor Tabbed Test",
-  "layout": "tabbed",
-  "editor": true,
-  "controls": true,
-  "Image": {}
-}

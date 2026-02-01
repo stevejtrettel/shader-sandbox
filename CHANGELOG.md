@@ -5,14 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2025-XX-XX
 
 ### Added
 - WebGL context loss handling with automatic recovery
 - Theme support: light, dark, and system modes via `theme` config option
 - CSS variables for consistent theming across all layouts
+- Audio input (microphone FFT spectrum and waveform) as channel type
+- Webcam and video file channel types
+- Touch uniforms: `iTouchCount`, `iTouch0-2`, `iPinch`, `iPinchDelta`, `iPinchCenter`
+- Custom uniforms with UI controls (float, int, bool, vec2, vec3, vec4)
+- Array uniforms via Uniform Buffer Objects (UBOs) with std140 layout
+- JavaScript scripting API (`script.js` hooks: `setup`, `onFrame`)
+- Video recording (WebM) via MediaRecorder API
+- HTML export for standalone shader playback
+- Tabbed and UI layout modes
+- Live code editor with Prism.js syntax highlighting
+- Expandable stats panel (time, frame count, resolution)
+- Standard mode (non-Shadertoy) shader support
+- Config validation with actionable error messages
 
 ### Changed
+- Renamed `ShadertoyEngine` to `ShaderEngine`
+- Renamed project types: `ShadertoyProject` → `ShaderProject`, `ShadertoyConfig` → `ProjectConfig`
 - Reorganized CSS architecture with centralized theme variables
 - Improved CLI error messages with actionable suggestions
 

@@ -193,8 +193,8 @@ export async function loadDemo(
   // Get uniforms (only from standard mode configs)
   const uniforms = mode === 'standard' && 'uniforms' in config ? config.uniforms : undefined;
 
-  // Check if config uses named buffers (standard mode only)
-  const hasNamedBuffers = mode === 'standard' && 'buffers' in config && config.buffers;
+  // Check if config uses named buffers or textures (standard mode only)
+  const hasNamedBuffers = mode === 'standard' && (('buffers' in config && config.buffers) || ('textures' in config && config.textures));
 
   if (hasNamedBuffers) {
     return loadStandardWithNamedBuffers(
@@ -474,7 +474,7 @@ async function loadStandardWithNamedBuffers(
       namedSamplers.set(texName, { kind: 'audio' });
     } else if (texValue === 'webcam') {
       namedSamplers.set(texName, { kind: 'webcam' });
-    } else {
+    } else if (/\.\w+$/.test(texValue)) {
       // Image file — resolve via imageFiles
       const fullPath = `${demoPath}/${texValue.replace(/^\.\//, '')}`;
       const actualPath = findFileCaseInsensitive(imageFiles, fullPath);
@@ -484,6 +484,9 @@ async function loadStandardWithNamedBuffers(
       const imageUrl = await imageFiles[actualPath]();
       const internalName = registerTexture(imageUrl);
       namedSamplers.set(texName, { kind: 'texture', name: internalName, cubemap: false });
+    } else {
+      // Script-uploaded texture — name matched by engine.updateTexture() calls
+      namedSamplers.set(texName, { kind: 'script', name: texValue });
     }
   }
 

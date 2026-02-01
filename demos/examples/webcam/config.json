@@ -1,0 +1,9 @@
+{
+  "title": "Webcam Input",
+  "description": "Live webcam feed as a texture",
+  "layout": "default",
+  "controls": true,
+  "textures": {
+    "camera": "webcam"
+  }
+}

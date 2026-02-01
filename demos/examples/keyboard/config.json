@@ -1,0 +1,9 @@
+{
+  "title": "Keyboard Input",
+  "description": "Keyboard state via texture — press WASD, 1-5, or C",
+  "layout": "default",
+  "controls": true,
+  "textures": {
+    "keys": "keyboard"
+  }
+}

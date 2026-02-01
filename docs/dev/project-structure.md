@@ -18,13 +18,18 @@ shadertoys/
 
 ## Source Code (`src/`)
 
-### Entry Point
+### Entry Points
 
 ```
 src/
-├── main.ts            # Application entry point
+├── main.ts            # Dev/demo entry point
+├── index.ts           # Library entry point (npm package exports)
+├── embed.ts           # Embeddable entry point
+├── vite-env.d.ts      # Vite type declarations
 └── styles/
-    └── base.css       # Global CSS resets
+    ├── base.css       # Global CSS resets
+    ├── embed.css      # Embed-specific styles
+    └── theme.css      # CSS variables for theming
 ```
 
 **`main.ts`**
@@ -41,8 +46,10 @@ Handles configuration loading and normalization.
 ```
 src/project/
 ├── types.ts           # Type definitions
+├── configHelpers.ts   # Shared config parsing and validation
 ├── loadProject.ts     # Project loader (Node.js)
-└── loaderHelper.ts    # Runtime loader for bundled demos
+├── loaderHelper.ts    # Runtime loader for bundled demos
+└── generatedLoader.ts # Auto-generated demo loader (build output)
 ```
 
 **`types.ts`**
@@ -50,22 +57,22 @@ src/project/
 - `ChannelJSON*` - JSON config format types
 - `ChannelSource` - Normalized channel type (discriminated union)
 - `Channels` - Tuple of exactly 4 ChannelSource
-- `ShadertoyConfig` - JSON config structure
-- `ShadertoyProject` - Normalized project (engine input)
-- `ShadertoyPass` - Normalized pass definition
-- `ShadertoyMeta` - Project metadata
+- `ProjectConfig` - JSON config structure
+- `ShaderProject` - Normalized project (engine input)
+- `ShaderPass` - Normalized pass definition
+- `ProjectMeta` - Project metadata
 
 **`loadProject.ts`**
 - `loadProject(root)` - Main loading function (async, Node.js)
 - Handles both simple (just `image.glsl`) and complex (with config) projects
 - Validates passes and channels
-- Normalizes configs to `ShadertoyProject`
+- Normalizes configs to `ShaderProject`
 - Sets default values for layout and controls
 
 **`loaderHelper.ts`**
 - `loadProjectFromFiles()` - Runtime loader for bundled demos
 - Used by generated loader code
-- Converts bundled file maps to ShadertoyProject
+- Converts bundled file maps to ShaderProject
 
 ### Engine Layer (`src/engine/`)
 
@@ -73,12 +80,13 @@ WebGL execution engine.
 
 ```
 src/engine/
-├── ShadertoyEngine.ts # Main engine class
+├── ShaderEngine.ts    # Main engine class
 ├── types.ts           # Engine types
-└── glHelpers.ts       # WebGL utilities
+├── glHelpers.ts       # WebGL utilities
+└── std140.ts          # UBO memory layout (std140 packing)
 ```
 
-**`ShadertoyEngine.ts`**
+**`ShaderEngine.ts`**
 
 Main engine class (~800 lines):
 
@@ -153,30 +161,35 @@ src/app/
 
 **`App.ts`**
 
-Main application class (~680 lines):
+Main application class:
 
 **Constructor**:
 - Create canvas element
-- Create FPS display
+- Create FPS display and stats panel
 - Create playback controls (if enabled)
 - Get WebGL2 context
-- Create ShadertoyEngine
-- Set up resize observer
-- Set up mouse/keyboard tracking
-- Set up keyboard shortcuts
+- Set up WebGL context loss handling
+- Create ShaderEngine
+- Initialize script API and run setup hook
+- Create uniforms panel (if uniforms defined)
+- Set up resize/intersection observers
+- Set up mouse/touch/keyboard tracking
 
 **Animation loop**:
 - `start()` - Begin requestAnimationFrame loop
 - `stop()` - Cancel animation
-- `animate(time)` - Main render callback
+- `animate(time)` - Main render callback (updates keyboard, audio, video textures; runs script hooks; calls engine step)
 
 **Controls**:
 - `togglePlayPause()` - Toggle isPaused flag
 - `reset()` - Reset start time and engine
 - `screenshot()` - Capture canvas as PNG
+- `toggleRecording()` - Start/stop video recording (WebM)
+- `exportHTML()` - Export standalone HTML file
 
 **Events**:
 - `setupMouseTracking()` - Track mouse position and clicks
+- `setupTouchTracking()` - Pointer events for multi-touch and pinch gestures
 - `setupKeyboardTracking()` - Forward all keys to engine
 - `setupGlobalShortcuts()` - S for screenshot
 - `setupKeyboardShortcuts()` - Space/R for playback
@@ -184,11 +197,12 @@ Main application class (~680 lines):
 **Rendering**:
 - `updateCanvasSize()` - Resize canvas to container
 - `presentToScreen()` - Blit Image pass to canvas
-- `updateFps()` - Calculate and display FPS
+- `updateFps()` - Calculate and display FPS and stats
 
 **Error display**:
-- `showErrorOverlay()` - Display compilation errors
-- `extractCodeContext()` - Get source context around error
+- `showErrorOverlay()` - Display compilation errors with source context
+- `showContextLostOverlay()` - Display WebGL context loss with auto-recovery
+- `showMediaBanner()` - Prompt for audio/webcam permissions
 
 **`types.ts`**
 - `AppOptions` - App constructor options
@@ -211,9 +225,13 @@ src/layouts/
 ├── FullscreenLayout.ts
 ├── DefaultLayout.ts
 ├── SplitLayout.ts
+├── TabbedLayout.ts
+├── UILayout.ts
 ├── fullscreen.css
 ├── default.css
-└── split.css
+├── split.css
+├── tabbed.css
+└── ui.css
 ```
 
 **`types.ts`**
@@ -221,7 +239,7 @@ src/layouts/
   - `getCanvasContainer()` - Returns HTMLElement for canvas
   - `dispose()` - Clean up
 - `LayoutOptions` - Layout constructor options
-- `LayoutMode` - `'fullscreen' | 'default' | 'split'`
+- `LayoutMode` - `'fullscreen' | 'default' | 'split' | 'tabbed' | 'ui'`
 
 **`index.ts`**
 - `createLayout(mode, options)` - Factory function
@@ -241,17 +259,58 @@ src/layouts/
 - Copy-to-clipboard button
 - Imports `split.css`
 
+**`TabbedLayout.ts`**
+- Tabs to switch between shader view and code
+- Imports `tabbed.css`
+
+**`UILayout.ts`**
+- Full UI layout with integrated controls and editor
+- Imports `ui.css`
+
+### Uniforms (`src/uniforms/`)
+
+Custom uniform UI controls.
+
+```
+src/uniforms/
+├── index.ts              # Exports
+├── UniformStore.ts       # Uniform value storage
+├── UniformControls.ts    # UI control generation (sliders, color pickers)
+├── UniformsPanel.ts      # Floating panel container
+├── uniform-controls.css  # Control styles
+└── uniforms-panel.css    # Panel styles
+```
+
+### Editor (`src/editor/`)
+
+Live code editing with syntax highlighting.
+
+```
+src/editor/
+├── EditorPanel.ts     # Editor panel component
+├── editor-panel.css   # Editor styles
+├── prism-editor.ts    # Prism.js integration
+└── prism-editor.css   # Prism theme styles
+```
+
 ### Styles (`src/styles/`)
 
 ```
 src/styles/
-└── base.css           # Global resets and defaults
+├── base.css           # Global resets and defaults
+├── embed.css          # Embed-specific styles
+└── theme.css          # CSS variables for light/dark/system themes
 ```
 
 **`base.css`**
 - CSS reset (margin, padding, box-sizing)
 - html/body 100% height
 - Disable overflow on body
+
+**`theme.css`**
+- CSS custom properties for theming
+- Light and dark mode variables
+- System preference media query support
 
 ## Shaders (`shaders/`)
 
@@ -284,6 +343,11 @@ Build helper scripts (Node.js):
 
 - `dev-demo.cjs` - Generate loader for dev server
 - `build-demo.cjs` - Generate loader for production build
+- `build-embed.cjs` - Build embeddable script output
+- `build-embed-folder.cjs` - Build embeddable from a folder
+- `build-folder-screenshots.cjs` - Generate screenshots for demos
+- `build-lib.cjs` - Build library distribution (npm package)
+- `new-demo.cjs` - Create new demo from template
 
 These scripts create `src/project/generatedLoader.ts` which bundles the demo files.
 
@@ -340,7 +404,7 @@ Vite build configuration:
 ## File Naming Conventions
 
 ### TypeScript
-- PascalCase for classes: `ShadertoyEngine.ts`, `App.ts`
+- PascalCase for classes: `ShaderEngine.ts`, `App.ts`
 - camelCase for utilities: `glHelpers.ts`, `loaderHelper.ts`
 - lowercase for types: `types.ts`
 
@@ -399,7 +463,7 @@ Every module has clear interfaces and types in `types.ts`.
 ### New Engine Feature
 
 1. Add types to `src/engine/types.ts`
-2. Implement in `ShadertoyEngine.ts`
+2. Implement in `ShaderEngine.ts`
 3. Add WebGL helpers to `glHelpers.ts` if needed
 
 ## Development Workflow

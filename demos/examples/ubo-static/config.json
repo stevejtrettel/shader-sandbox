@@ -1,0 +1,12 @@
+{
+  "title": "UBO Static",
+  "layout": "default",
+  "controls": false,
+  "uniforms": {
+    "stars": {
+      "type": "vec4",
+      "count": 64
+    }
+  },
+  "Image": {}
+}

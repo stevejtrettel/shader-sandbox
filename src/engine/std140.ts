@@ -51,6 +51,13 @@ export function std140ByteSize(type: ArrayUniformType, count: number): number {
 }
 
 /**
+ * Compute the total number of floats in std140 layout for a given type and count.
+ */
+export function std140FloatCount(type: ArrayUniformType, count: number): number {
+  return STD140_STRIDE_FLOATS[type] * count;
+}
+
+/**
  * Pack tightly-packed user data into std140 layout.
  *
  * For mat4 and vec4, the tight layout is already std140-compatible,

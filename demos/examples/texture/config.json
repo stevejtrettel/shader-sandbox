@@ -1,0 +1,9 @@
+{
+  "title": "Texture Loading",
+  "description": "Loading an image file as a texture",
+  "layout": "tabbed",
+  "controls": true,
+  "textures": {
+    "photo": "texture.png"
+  }
+}

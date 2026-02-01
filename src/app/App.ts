@@ -68,8 +68,11 @@ export class App {
   private animationId: number | null = null;
   private startTime: number = 0;
 
-  // Mouse state for iMouse uniform
-  private mouse: MouseState = [0, 0, -1, -1];
+  // Mouse state for iMouse uniform (Shadertoy spec)
+  private mouse: MouseState = [0, 0, 0, 0];
+  private isMouseDown = false;
+  // iMouseDown: last mouse position while held, freezes on release
+  private mouseDown: [number, number] = [0, 0];
 
   // Touch state for touch uniforms
   private touchState: TouchState = {
@@ -452,7 +455,7 @@ export class App {
     }
 
     // Run engine step with mouse and touch data
-    this.engine.step(elapsedTime, this.mouse, {
+    this.engine.step(elapsedTime, this.mouse, this.mouseDown, {
       count: this.touchState.count,
       touches: this.touchState.touches,
       pinch: this.touchState.pinch,
@@ -616,29 +619,42 @@ export class App {
   // ===========================================================================
 
   private setupMouseTracking(): void {
-    const updateMouse = (e: MouseEvent) => {
+    const getCoords = (e: MouseEvent): [number, number] => {
       const rect = this.canvas.getBoundingClientRect();
       const x = (e.clientX - rect.left) * this.pixelRatio;
       const y = (rect.height - (e.clientY - rect.top)) * this.pixelRatio; // Flip Y
-
-      this.mouse[0] = x;
-      this.mouse[1] = y;
+      return [x, y];
     };
 
-    const handleClick = (e: MouseEvent) => {
-      const rect = this.canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * this.pixelRatio;
-      const y = (rect.height - (e.clientY - rect.top)) * this.pixelRatio; // Flip Y
-
-      this.mouse[2] = x;
+    this.canvas.addEventListener('mousedown', (e: MouseEvent) => {
+      const [x, y] = getCoords(e);
+      this.isMouseDown = true;
+      this.mouse[0] = x;
+      this.mouse[1] = y;
+      this.mouse[2] = x;  // Click origin (positive = pressed)
       this.mouse[3] = y;
+      this.mouseDown[0] = x;
+      this.mouseDown[1] = y;
 
       // Initialize media inputs on first user gesture (browser policy)
       this.initMediaOnGesture();
-    };
+    });
 
-    this.canvas.addEventListener('mousemove', updateMouse);
-    this.canvas.addEventListener('click', handleClick);
+    this.canvas.addEventListener('mousemove', (e: MouseEvent) => {
+      if (!this.isMouseDown) return;
+      const [x, y] = getCoords(e);
+      this.mouse[0] = x;
+      this.mouse[1] = y;
+      this.mouseDown[0] = x;
+      this.mouseDown[1] = y;
+    });
+
+    this.canvas.addEventListener('mouseup', () => {
+      this.isMouseDown = false;
+      // Negate zw to signal mouse is no longer held
+      this.mouse[2] = -Math.abs(this.mouse[2]);
+      this.mouse[3] = -Math.abs(this.mouse[3]);
+    });
   }
 
   // ===========================================================================
@@ -680,10 +696,13 @@ export class App {
 
       // Single touch also updates iMouse for compatibility
       if (this.activePointers.size === 1) {
+        this.isMouseDown = true;
         this.mouse[0] = x;
         this.mouse[1] = y;
-        this.mouse[2] = x; // Click position
+        this.mouse[2] = x; // Click origin (positive = pressed)
         this.mouse[3] = y;
+        this.mouseDown[0] = x;
+        this.mouseDown[1] = y;
       }
 
       e.preventDefault();
@@ -705,6 +724,8 @@ export class App {
       if (this.activePointers.size === 1) {
         this.mouse[0] = x;
         this.mouse[1] = y;
+        this.mouseDown[0] = x;
+        this.mouseDown[1] = y;
       }
 
       e.preventDefault();
@@ -715,6 +736,13 @@ export class App {
 
       this.activePointers.delete(e.pointerId);
       this.canvas.releasePointerCapture(e.pointerId);
+
+      // Negate zw when all touches released
+      if (this.activePointers.size === 0) {
+        this.isMouseDown = false;
+        this.mouse[2] = -Math.abs(this.mouse[2]);
+        this.mouse[3] = -Math.abs(this.mouse[3]);
+      }
 
       this.updateTouchState();
       e.preventDefault();
@@ -1477,6 +1505,7 @@ uniform float iTime;
 uniform float iTimeDelta;
 uniform int   iFrame;
 uniform vec4  iMouse;
+uniform vec2  iMouseDown;
 uniform vec4  iDate;
 uniform float iFrameRate;
 uniform vec3  iChannelResolution[4];
@@ -1629,6 +1658,7 @@ const runtimePasses = PASSES.map(pass => {
       iTimeDelta: gl.getUniformLocation(program, 'iTimeDelta'),
       iFrame: gl.getUniformLocation(program, 'iFrame'),
       iMouse: gl.getUniformLocation(program, 'iMouse'),
+      iMouseDown: gl.getUniformLocation(program, 'iMouseDown'),
       iDate: gl.getUniformLocation(program, 'iDate'),
       iFrameRate: gl.getUniformLocation(program, 'iFrameRate'),
       iChannel: [0,1,2,3].map(i => gl.getUniformLocation(program, 'iChannel' + i)),
@@ -1643,15 +1673,29 @@ const runtimePasses = PASSES.map(pass => {
 // Find pass by name
 const findPass = name => runtimePasses.find(p => p.name === name);
 
-// Mouse state
+// Mouse state (Shadertoy spec: xy=pos while down, zw=click origin, sign=held)
 let mouse = [0, 0, 0, 0];
-canvas.addEventListener('mousemove', e => {
-  mouse[0] = e.clientX * devicePixelRatio;
-  mouse[1] = (canvas.clientHeight - e.clientY) * devicePixelRatio;
+let mouseDownPos = [0, 0];
+let mouseDown = false;
+canvas.addEventListener('mousedown', e => {
+  mouseDown = true;
+  const x = e.clientX * devicePixelRatio;
+  const y = (canvas.clientHeight - e.clientY) * devicePixelRatio;
+  mouse[0] = x; mouse[1] = y;
+  mouse[2] = x; mouse[3] = y;
+  mouseDownPos[0] = x; mouseDownPos[1] = y;
 });
-canvas.addEventListener('click', e => {
-  mouse[2] = e.clientX * devicePixelRatio;
-  mouse[3] = (canvas.clientHeight - e.clientY) * devicePixelRatio;
+canvas.addEventListener('mousemove', e => {
+  if (!mouseDown) return;
+  const x = e.clientX * devicePixelRatio;
+  const y = (canvas.clientHeight - e.clientY) * devicePixelRatio;
+  mouse[0] = x; mouse[1] = y;
+  mouseDownPos[0] = x; mouseDownPos[1] = y;
+});
+canvas.addEventListener('mouseup', () => {
+  mouseDown = false;
+  mouse[2] = -Math.abs(mouse[2]);
+  mouse[3] = -Math.abs(mouse[3]);
 });
 
 // Resize handler - only resize if dimensions actually changed
@@ -1704,6 +1748,7 @@ function render(now) {
     gl.uniform1f(pass.uniforms.iTimeDelta, deltaTime);
     gl.uniform1i(pass.uniforms.iFrame, frame);
     gl.uniform4fv(pass.uniforms.iMouse, mouse);
+    gl.uniform2fv(pass.uniforms.iMouseDown, mouseDownPos);
     gl.uniform4fv(pass.uniforms.iDate, iDate);
     gl.uniform1f(pass.uniforms.iFrameRate, 1 / deltaTime);
 

@@ -33,7 +33,7 @@ Each layer has a specific responsibility and communicates through well-defined i
 - `loaderHelper.ts` - Runtime loader for bundled demos in browser
 
 **Input**: Raw config files + GLSL source files
-**Output**: Normalized `ShadertoyProject` object
+**Output**: Normalized `ShaderProject` object
 
 **Key Responsibilities**:
 - Parse JSON configs
@@ -50,11 +50,11 @@ Each layer has a specific responsibility and communicates through well-defined i
 **Responsibility**: Execute shaders using WebGL with Shadertoy semantics.
 
 **Key Files**:
-- `ShadertoyEngine.ts` - Main engine class
+- `ShaderEngine.ts` - Main engine class
 - `types.ts` - Engine-specific types (RuntimePass, EngineStats, etc.)
 - `glHelpers.ts` - WebGL utility functions
 
-**Input**: `ShadertoyProject` + WebGL context
+**Input**: `ShaderProject` + WebGL context
 **Output**: Renders frames to framebuffers
 
 **Key Responsibilities**:
@@ -80,7 +80,7 @@ Each layer has a specific responsibility and communicates through well-defined i
 - `types.ts` - App-specific types (AppOptions, MouseState)
 - `app.css` - UI styles (FPS counter, controls, error overlay)
 
-**Input**: Container element + `ShadertoyProject`
+**Input**: Container element + `ShaderProject`
 **Output**: Running application with UI
 
 **Key Responsibilities**:
@@ -130,7 +130,7 @@ Each layer has a specific responsibility and communicates through well-defined i
    ↓
 3. Project Layer: Load config, load GLSL, normalize
    ↓
-4. Returns ShadertoyProject
+4. Returns ShaderProject
    ↓
 5. createLayout(mode, { container, project })
    ↓
@@ -140,7 +140,7 @@ Each layer has a specific responsibility and communicates through well-defined i
    ↓
 8. App creates canvas, WebGL context
    ↓
-9. new ShadertoyEngine({ gl, project })
+9. new ShaderEngine({ gl, project })
    ↓
 10. Engine compiles shaders, creates resources
    ↓
@@ -349,7 +349,7 @@ Shader compilation errors are:
 Rare, but possible:
 - Invalid framebuffer configurations → throw Error
 - Missing resources → throw Error
-- WebGL context loss → not currently handled
+- WebGL context loss → automatic recovery with engine reinitialization
 
 **Philosophy**: Fail fast and loudly during development.
 
@@ -357,7 +357,7 @@ Rare, but possible:
 
 ### Strong Typing Throughout
 
-- Project layer: `ShadertoyProject`, `ShadertoyPass`, `Channels`
+- Project layer: `ShaderProject`, `ShaderPass`, `Channels`
 - Engine layer: `RuntimePass`, `RuntimeTexture2D`, `PassUniformLocations`
 - App layer: `AppOptions`, `MouseState`
 
@@ -415,9 +415,6 @@ This guarantees exactly 4 channels per pass at compile time.
 ## Known Limitations
 
 - No cubemap textures (converted to equirectangular)
-- No video textures
-- No audio input
-- No webcam input
 - Fixed 4 channels per pass
 - Maximum 5 passes (BufferA-D + Image)
 

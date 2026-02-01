@@ -185,6 +185,54 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 }
 ```
 
+### Touch Uniforms (Mobile / Multi-touch)
+
+On mobile devices (or any touch-enabled screen), the engine provides additional uniforms for multi-touch and gesture input.
+
+```glsl
+int iTouchCount        // Number of active touches (0-3)
+vec4 iTouch0           // First touch: xy = current pos, zw = start pos
+vec4 iTouch1           // Second touch
+vec4 iTouch2           // Third touch
+float iPinch           // Pinch scale (1.0 = no pinch, >1 = spread, <1 = squeeze)
+float iPinchDelta      // Change in pinch scale this frame
+vec2 iPinchCenter      // Center point between two pinch fingers
+```
+
+A single touch also updates `iMouse` for compatibility with mouse-based shaders.
+
+**Example: Pinch to zoom**
+```glsl
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    vec2 uv = fragCoord / iResolution.xy;
+
+    // Zoom from center based on pinch gesture
+    vec2 center = vec2(0.5);
+    uv = (uv - center) / iPinch + center;
+
+    vec3 col = 0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0, 2, 4));
+    fragColor = vec4(col, 1.0);
+}
+```
+
+**Example: Draw at touch points**
+```glsl
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    vec2 uv = fragCoord / iResolution.xy;
+    float brightness = 0.0;
+
+    // Draw circles at each active touch
+    if (iTouchCount >= 1) {
+        brightness += smoothstep(50.0, 0.0, length(fragCoord - iTouch0.xy));
+    }
+    if (iTouchCount >= 2) {
+        brightness += smoothstep(50.0, 0.0, length(fragCoord - iTouch1.xy));
+    }
+
+    fragColor = vec4(vec3(brightness), 1.0);
+}
+```
+
 ## Common Patterns
 
 ### Drawing a Circle
