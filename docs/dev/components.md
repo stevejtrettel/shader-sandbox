@@ -265,6 +265,10 @@ type ChannelSource =
   | { kind: 'buffer'; name: PassName; previous: boolean }
   | { kind: 'texture2d'; name: string; filter: Filter; wrap: Wrap }
   | { kind: 'keyboard' }
+  | { kind: 'audio' }
+  | { kind: 'webcam' }
+  | { kind: 'video'; name: string }
+  | { kind: 'script'; name: string }
   | { kind: 'none' };
 ```
 
@@ -338,53 +342,16 @@ private resolveChannelTexture(
 
 ### Adding New Channel Type
 
-**Example: Video texture**
+To add a new channel type:
 
-**Step 1**: Add to `ChannelSource` union:
-```typescript
-type ChannelSource =
-  | { kind: 'buffer'; ... }
-  | { kind: 'texture2d'; ... }
-  | { kind: 'keyboard' }
-  | { kind: 'video'; name: string }  // NEW
-  | { kind: 'none' };
-```
+1. Add to `ChannelSource` union in `src/project/types.ts`
+2. Add to `ChannelJSON` union types
+3. Handle in config normalization (`configHelpers.ts`)
+4. Load the resource in the engine constructor
+5. Handle in `resolveChannelTexture()` in `ShaderEngine.ts`
+6. Update the texture each frame if it's dynamic (like audio or video)
 
-**Step 2**: Add to JSON types:
-```typescript
-export interface ChannelJSONVideo {
-  video: string;  // Path to video file
-}
-
-export type ChannelJSON =
-  | ChannelJSONBuffer
-  | ChannelJSONTexture
-  | ChannelJSONKeyboard
-  | ChannelJSONVideo  // NEW
-  | {};
-```
-
-**Step 3**: Handle in config normalization:
-```typescript
-if ('video' in ch) {
-  return { kind: 'video', name: ch.video };
-}
-```
-
-**Step 4**: Load video in engine constructor:
-```typescript
-// Create HTMLVideoElement, load video, create texture
-```
-
-**Step 5**: Handle in `resolveChannelTexture()`:
-```typescript
-case 'video': {
-  const vid = this._videos.find(v => v.name === source.name);
-  return vid.texture;
-}
-```
-
-**Step 6**: Update video texture each frame before rendering.
+See the existing implementations for audio, webcam, video, and script channels as examples.
 
 ---
 
@@ -403,6 +370,8 @@ export function createLayout(
     case 'fullscreen': return new FullscreenLayout(options);
     case 'default': return new DefaultLayout(options);
     case 'split': return new SplitLayout(options);
+    case 'tabbed': return new TabbedLayout(options);
+    case 'ui': return new UILayout(options);
   }
 }
 ```
@@ -516,7 +485,7 @@ export class MyLayout implements BaseLayout {
 // src/layouts/index.ts
 import { MyLayout } from './MyLayout';
 
-export type LayoutMode = 'fullscreen' | 'default' | 'split' | 'my';
+export type LayoutMode = 'fullscreen' | 'default' | 'split' | 'tabbed' | 'ui' | 'my';
 
 export function createLayout(
   mode: LayoutMode,
@@ -844,7 +813,7 @@ At 4K (3840×2160), this quadruples to ~1.3 GB!
 
 Understanding these components gives you the knowledge to:
 - Add new uniforms for shader features
-- Implement new channel types (video, webcam, audio)
+- Implement new channel types
 - Create custom layout modes
 - Extend the preprocessing pipeline
 - Optimize performance for your use case

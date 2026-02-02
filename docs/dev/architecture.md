@@ -4,7 +4,7 @@ This document explains the system design, data flow, and key architectural decis
 
 ## Overview
 
-The Shadertoy Runner is built with a clean **layered architecture** that separates concerns and maintains strong boundaries between components.
+Shader Sandbox is built with a clean **layered architecture** that separates concerns and maintains strong boundaries between components.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -64,10 +64,13 @@ Each layer has a specific responsibility and communicates through well-defined i
 - Compile GLSL shaders
 - Create WebGL resources (programs, VAOs, framebuffers, textures)
 - Bind Shadertoy uniforms (`iTime`, `iResolution`, `iFrame`, etc.)
+- Bind custom uniforms and array uniforms (UBOs)
 - Execute passes in order (BufferA → BufferB → ... → Image)
 - Manage ping-pong textures for self-referencing buffers
-- Bind channels (buffers, textures, keyboard)
+- Bind channels (buffers, textures, keyboard, audio, webcam, video, script)
 - Track keyboard state and update keyboard texture
+- Update media textures (audio FFT, webcam, video) each frame
+- Support both Shadertoy mode and standard mode shader compilation
 
 **Design Decision**: The engine is **stateless across frames** - it just executes what it's told. The App layer controls timing and the animation loop.
 
@@ -88,12 +91,18 @@ Each layer has a specific responsibility and communicates through well-defined i
 - Run animation loop (`requestAnimationFrame`)
 - Track FPS and display counter
 - Handle mouse events → update `iMouse`
+- Handle touch events → update `iTouch0-2`, `iPinch`, etc.
 - Handle keyboard events → forward to engine
 - Manage playback state (play/pause/reset)
-- Screenshot functionality
+- Screenshot and video recording (WebM)
+- HTML export for standalone playback
 - Present engine output to screen via `blitFramebuffer`
 - Handle resize events
+- Handle WebGL context loss and recovery
 - Display shader compilation errors
+- Initialize and manage audio/webcam permissions
+- Run JavaScript script hooks (`setup`, `onFrame`)
+- Manage custom uniform UI panel
 
 **Design Decision**: App layer handles **all browser APIs** and UI concerns. The engine never touches DOM or browser events.
 
@@ -193,6 +202,22 @@ When the engine needs to bind `iChannel0` for a pass:
    │
    ├─ kind: 'keyboard'
    │  ├─ Get keyboard texture
+   │  └─ Bind to texture unit 0
+   │
+   ├─ kind: 'audio'
+   │  ├─ Get audio FFT/waveform texture
+   │  └─ Bind to texture unit 0
+   │
+   ├─ kind: 'webcam'
+   │  ├─ Get webcam video texture
+   │  └─ Bind to texture unit 0
+   │
+   ├─ kind: 'video'
+   │  ├─ Get video file texture
+   │  └─ Bind to texture unit 0
+   │
+   ├─ kind: 'script'
+   │  ├─ Get script-uploaded texture
    │  └─ Bind to texture unit 0
    │
    └─ kind: 'none'
@@ -370,7 +395,11 @@ type ChannelSource =
   | { kind: 'none' }
   | { kind: 'buffer'; buffer: PassName; previous: boolean }
   | { kind: 'texture2D'; name: string }
-  | { kind: 'keyboard' };
+  | { kind: 'keyboard' }
+  | { kind: 'audio' }
+  | { kind: 'webcam' }
+  | { kind: 'video'; name: string }
+  | { kind: 'script'; name: string };
 ```
 
 TypeScript ensures exhaustive checking in switch statements.
@@ -414,11 +443,10 @@ This guarantees exactly 4 channels per pass at compile time.
 
 ## Known Limitations
 
-- No cubemap textures (converted to equirectangular)
+- No native cubemap textures (converted to equirectangular)
 - Fixed 4 channels per pass
 - Maximum 5 passes (BufferA-D + Image)
-
-These match Shadertoy's feature set and can be added if needed.
+- HTML export excludes array uniforms, audio, webcam, video, and script hooks
 
 ## Summary
 

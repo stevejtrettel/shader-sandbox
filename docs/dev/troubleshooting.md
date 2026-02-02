@@ -112,14 +112,7 @@ Error: Image pass is required but not found in config
 
 **Cause**: Config doesn't define an Image pass.
 
-**Solution**: Always include Image pass:
-```json
-{
-  "passes": {
-    "Image": {}
-  }
-}
-```
+**Solution**: Always include an `image.glsl` file. The Image pass is always required.
 
 ### "Buffer 'BufferX' not found"
 
@@ -133,26 +126,19 @@ Error: Buffer 'BufferA' not found
 **Example**:
 ```json
 {
-  "passes": {
-    "Image": {
-      "channels": {
-        "iChannel0": { "buffer": "BufferA" }  // But BufferA not defined!
-      }
-    }
+  "Image": {
+    "iChannel0": "BufferA"
   }
 }
 ```
+But there's no `bufferA.glsl` or BufferA pass defined.
 
-**Solution**: Add the missing buffer:
+**Solution**: Add the missing buffer pass and shader file:
 ```json
 {
-  "passes": {
-    "BufferA": {},  // Add this
-    "Image": {
-      "channels": {
-        "iChannel0": { "buffer": "BufferA" }
-      }
-    }
+  "BufferA": {},
+  "Image": {
+    "iChannel0": "BufferA"
   }
 }
 ```
@@ -552,28 +538,18 @@ vec3 tex = texture(iChannel0, uv).rgb;  // Reading channel 0 (wrong!)
 
 **Issue**: Self-referencing buffer shows black or doesn't update correctly.
 
-**Cause**: Using `"previous": false` or omitting it.
+**Cause**: The buffer isn't referencing itself in config.
 
-**Wrong**:
+**Correct** (self-reference is auto-detected):
 ```json
-"BufferA": {
-  "channels": {
-    "iChannel0": { "buffer": "BufferA" }  // Missing "previous": true
+{
+  "BufferA": {
+    "iChannel0": "BufferA"
   }
 }
 ```
 
-**Right**:
-```json
-"BufferA": {
-  "channels": {
-    "iChannel0": {
-      "buffer": "BufferA",
-      "previous": true  // Must specify!
-    }
-  }
-}
-```
+When BufferA references itself, the engine automatically uses the previous frame's output via ping-pong textures.
 
 ### 5. Keyboard Not Working
 
@@ -582,21 +558,30 @@ vec3 tex = texture(iChannel0, uv).rgb;  // Reading channel 0 (wrong!)
 **Possible causes**:
 
 **A. Keyboard channel not bound**:
+
+In Shadertoy mode:
 ```json
-"Image": {
-  "channels": {
-    "iChannel0": { "keyboard": true }  // Make sure this is set
+{
+  "Image": {
+    "iChannel0": "keyboard"
   }
 }
 ```
 
-**B. Reading from wrong channel**:
-```glsl
-// If keyboard is on iChannel0:
-texture(iChannel1, ...)  // Wrong channel!
+In standard mode:
+```json
+{
+  "textures": {
+    "keyboard": "keyboard"
+  }
+}
 ```
 
-**C. Wrong sample coordinates**:
+**B. Using standard mode helpers in Shadertoy mode**:
+
+The `keyDown()`, `isKeyDown()`, etc. helpers are only auto-injected in standard mode. In Shadertoy mode you must sample the texture manually.
+
+**C. Wrong sample coordinates** (Shadertoy mode):
 ```glsl
 // Correct:
 texture(iChannel0, vec2((float(keycode) + 0.5) / 256.0, 0.25))
