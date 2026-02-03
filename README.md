@@ -17,6 +17,18 @@ shader dev my-shader
 
 Open http://localhost:3000 to see your shader running.
 
+## Examples
+
+See more examples in the [demos/examples](https://github.com/stevejtrettel/shader-sandbox/tree/main/demos/examples) directory on GitHub:
+
+- **[hello-shader](https://github.com/stevejtrettel/shader-sandbox/tree/main/demos/examples/hello-shader)** - Basic shader introduction
+- **[buffers](https://github.com/stevejtrettel/shader-sandbox/tree/main/demos/examples/buffers)** - Named buffer with Conway's Game of Life
+- **[multi-buffer](https://github.com/stevejtrettel/shader-sandbox/tree/main/demos/examples/multi-buffer)** - Multiple named buffers composited together
+- **[reaction-diffusion](https://github.com/stevejtrettel/shader-sandbox/tree/main/demos/examples/reaction-diffusion)** - Gray-Scott reaction-diffusion simulation
+- **[scripting](https://github.com/stevejtrettel/shader-sandbox/tree/main/demos/examples/scripting)** - JavaScript integration with shaders
+- **[ubo-arrays](https://github.com/stevejtrettel/shader-sandbox/tree/main/demos/examples/ubo-arrays)** - Uniform buffer arrays for large datasets
+- And more in the [examples directory](https://github.com/stevejtrettel/shader-sandbox/tree/main/demos/examples)
+
 ## CLI Commands
 
 ```bash
@@ -394,6 +406,53 @@ In Shadertoy mode, channels are bound per-pass using `iChannel0`–`iChannel3`:
   }
 }
 ```
+
+### Multi-Buffer Example
+
+Create buffer feedback by binding a buffer to its own `iChannel0`. This pattern matches Shadertoy's ping-pong rendering:
+
+**config.json:**
+```json
+{
+  "mode": "shadertoy",
+  "layout": "default",
+  "controls": true,
+  "BufferA": {
+    "iChannel0": "BufferA"
+  },
+  "Image": {
+    "iChannel0": "BufferA"
+  }
+}
+```
+
+**bufferA.glsl:**
+```glsl
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    vec2 uv = fragCoord / iResolution.xy;
+    vec4 prev = texelFetch(iChannel0, ivec2(fragCoord), 0);
+
+    // Animated pattern
+    float t = iTime;
+    vec3 col = 0.5 + 0.5 * cos(t + uv.xyx * 3.0 + vec3(0, 2, 4));
+
+    // Trail effect - blend with previous frame
+    col = mix(prev.rgb, col, 0.05);
+
+    fragColor = vec4(col, 1.0);
+}
+```
+
+**image.glsl:**
+```glsl
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    // Display the buffer output
+    vec4 data = texelFetch(iChannel0, ivec2(fragCoord), 0);
+    fragColor = vec4(data.rgb, 1.0);
+}
+```
+
+### Channel Bindings
 
 Channels can be bound as string shortcuts or objects with options:
 

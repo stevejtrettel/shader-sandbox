@@ -1,0 +1,23 @@
+{
+  "layout": "default",
+  "controls": true,
+  "buffers": {
+    "trail": {}
+  },
+  "uniforms": {
+    "uGlow": {
+      "type": "float",
+      "value": 1.0,
+      "min": 0.0,
+      "max": 3.0,
+      "step": 0.1,
+      "label": "Mouse Glow"
+    },
+    "uColor": {
+      "type": "vec3",
+      "value": [1.0, 0.5, 0.2],
+      "color": true,
+      "label": "Color"
+    }
+  }
+}

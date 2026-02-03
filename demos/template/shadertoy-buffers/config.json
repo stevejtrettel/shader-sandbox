@@ -2,10 +2,10 @@
   "mode": "shadertoy",
   "layout": "default",
   "controls": true,
-  "Image": {
+  "BufferA": {
     "iChannel0": "BufferA"
   },
-  "BufferA": {
+  "Image": {
     "iChannel0": "BufferA"
   }
 }
