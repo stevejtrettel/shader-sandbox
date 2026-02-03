@@ -1,6 +1,6 @@
 {
   "name": "@stevejtrettel/shader-sandbox",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Local Shadertoy-compatible GLSL shader development environment with live editing",
   "author": "Steve Trettel",
   "license": "MIT",
