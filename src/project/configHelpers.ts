@@ -165,7 +165,7 @@ export function validateConfig(config: Record<string, any>, root: string): void 
   // Validate buffer names
   const bufferNames = new Set<string>();
   if (config.buffers) {
-    const names = Array.isArray(config.buffers) ? config.buffers : Object.keys(config.buffers);
+    const names = Object.keys(config.buffers);
     for (const name of names) {
       if (typeof name !== 'string') {
         errors.push(`Buffer name must be a string, got ${typeof name}`);

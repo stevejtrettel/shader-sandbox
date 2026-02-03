@@ -166,6 +166,29 @@ export interface RuntimeScriptTexture {
 }
 
 // =============================================================================
+// Built-in Uniform Values (per-frame data passed to shaders)
+// =============================================================================
+
+/**
+ * Values for all built-in uniforms, computed once per frame and passed to each pass.
+ */
+export interface BuiltinUniformValues {
+  iResolution: readonly [number, number, number];
+  iTime: number;
+  iTimeDelta: number;
+  iFrame: number;
+  iMouse: [number, number, number, number];
+  iMousePressed: boolean;
+  iDate: readonly [number, number, number, number];
+  iFrameRate: number;
+  iTouchCount: number;
+  iTouch: [[number, number, number, number], [number, number, number, number], [number, number, number, number]];
+  iPinch: number;
+  iPinchDelta: number;
+  iPinchCenter: [number, number];
+}
+
+// =============================================================================
 // Engine Stats
 // =============================================================================
 

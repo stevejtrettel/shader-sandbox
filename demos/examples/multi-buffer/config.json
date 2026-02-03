@@ -1,17 +1,11 @@
 {
+  "title": "Multi-Buffer",
+  "description": "Three named buffers composited together",
   "layout": "tabbed",
   "controls": true,
-
-  "BufferA": {},
-  "BufferB": {
-    "iChannel0": "BufferA"
-  },
-  "BufferC": {
-    "iChannel0": "BufferB"
-  },
-  "Image": {
-    "iChannel0": "BufferA",
-    "iChannel1": "BufferB",
-    "iChannel2": "BufferC"
+  "buffers": {
+    "red": {},
+    "green": {},
+    "blue": {}
   }
 }

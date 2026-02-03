@@ -457,20 +457,54 @@ export class UniformControls {
   // ===========================================================================
 
   private createColorPicker4(name: string, def: Vec4UniformDefinition): { element: HTMLElement; update: (v: UniformValue) => void } {
-    // For vec4 color, use color picker for RGB + a slider for alpha
+    // Build RGB color picker + alpha slider from scratch (no cloneNode hacks)
     const value = this.values[name] as number[];
     const label = def.label ?? name;
 
     const wrapper = document.createElement('div');
     wrapper.className = 'uniform-control uniform-control-color';
 
+    // Label row
+    const labelRow = document.createElement('div');
+    labelRow.className = 'uniform-control-label-row';
+
+    const labelEl = document.createElement('label');
+    labelEl.className = 'uniform-control-label';
+    labelEl.textContent = label;
+
+    const valueDisplay = document.createElement('span');
+    valueDisplay.className = 'uniform-control-value';
+    valueDisplay.textContent = this.rgbToHex(value);
+
+    labelRow.appendChild(labelEl);
+    labelRow.appendChild(valueDisplay);
+
     // Color picker for RGB
-    const colorResult = this.createColorPicker(name, {
-      type: 'vec3',
-      value: [value[0], value[1], value[2]],
-      color: true,
-      label,
+    const colorWrapper = document.createElement('div');
+    colorWrapper.className = 'uniform-control-color-wrapper';
+
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.className = 'uniform-control-color-input';
+    colorInput.value = this.rgbToHex(value);
+
+    const swatch = document.createElement('div');
+    swatch.className = 'uniform-control-color-swatch';
+    swatch.style.backgroundColor = this.rgbToHex(value);
+
+    colorInput.addEventListener('input', () => {
+      const rgb = this.hexToRgb(colorInput.value);
+      const current = this.values[name] as number[];
+      current[0] = rgb[0]; current[1] = rgb[1]; current[2] = rgb[2];
+      valueDisplay.textContent = colorInput.value;
+      swatch.style.backgroundColor = colorInput.value;
+      this.onChange(name, [...current]);
     });
+
+    swatch.addEventListener('click', () => colorInput.click());
+
+    colorWrapper.appendChild(swatch);
+    colorWrapper.appendChild(colorInput);
 
     // Alpha slider
     const alphaStep = def.step?.[3] ?? 0.01;
@@ -488,36 +522,18 @@ export class UniformControls {
       },
     });
 
-    // Override the color picker's onChange to include alpha
-    const origColorInput = colorResult.element.querySelector('.uniform-control-color-input') as HTMLInputElement;
-    if (origColorInput) {
-      // Remove old listener by replacing element
-      const newInput = origColorInput.cloneNode(true) as HTMLInputElement;
-      origColorInput.parentNode!.replaceChild(newInput, origColorInput);
-      const swatch = colorResult.element.querySelector('.uniform-control-color-swatch') as HTMLElement;
-      const valueDisplay = colorResult.element.querySelector('.uniform-control-value') as HTMLElement;
-
-      newInput.addEventListener('input', () => {
-        const rgb = this.hexToRgb(newInput.value);
-        const current = this.values[name] as number[];
-        current[0] = rgb[0]; current[1] = rgb[1]; current[2] = rgb[2];
-        if (valueDisplay) valueDisplay.textContent = newInput.value;
-        if (swatch) swatch.style.backgroundColor = newInput.value;
-        this.onChange(name, [...current]);
-      });
-
-      if (swatch) swatch.addEventListener('click', () => newInput.click());
-    }
-
-    wrapper.appendChild(colorResult.element.querySelector('.uniform-control-label-row')!);
-    wrapper.appendChild(colorResult.element.querySelector('.uniform-control-color-wrapper')!);
+    wrapper.appendChild(labelRow);
+    wrapper.appendChild(colorWrapper);
     wrapper.appendChild(alphaEl);
 
     return {
       element: wrapper,
       update: (v) => {
         const vec = v as number[];
-        colorResult.update([vec[0], vec[1], vec[2]]);
+        const hex = this.rgbToHex(vec);
+        colorInput.value = hex;
+        swatch.style.backgroundColor = hex;
+        valueDisplay.textContent = hex;
         alphaUpdate(vec[3]);
       },
     };

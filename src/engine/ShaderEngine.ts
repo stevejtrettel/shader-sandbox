@@ -16,23 +16,20 @@ import {
   PassName,
   UniformValue,
   UniformValues,
-  ArrayUniformDefinition,
   isArrayUniform,
 } from '../project/types';
 
 import { UniformStore } from '../uniforms/UniformStore';
-import { std140ByteSize, std140FloatCount, tightFloatCount, packStd140, glslTypeName } from './std140';
 
 import {
   EngineOptions,
   RuntimePass,
   RuntimeTexture2D,
   RuntimeKeyboardTexture,
-  RuntimeAudioTexture,
-  RuntimeVideoTexture,
   RuntimeScriptTexture,
   EngineStats,
   PassUniformLocations,
+  BuiltinUniformValues,
 } from './types';
 
 import {
@@ -43,96 +40,12 @@ import {
   createBlackTexture,
   createKeyboardTexture,
   updateKeyboardTexture,
-  createAudioTexture,
-  updateAudioTextureData,
-  createVideoPlaceholderTexture,
-  updateVideoTexture as glUpdateVideoTexture,
   createOrUpdateScriptTexture,
 } from './glHelpers';
 
-// =============================================================================
-// Vertex Shader (Shared across all passes)
-// =============================================================================
-
-const VERTEX_SHADER_SOURCE = `#version 300 es
-precision highp float;
-
-layout(location = 0) in vec2 position;
-
-void main() {
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`;
-
-// =============================================================================
-// Fragment Shader Boilerplate (before common code)
-// =============================================================================
-
-const FRAGMENT_PREAMBLE = `#version 300 es
-precision highp float;
-
-// Shadertoy compatibility: equirectangular texture sampling
-const float ST_PI = 3.14159265359;
-const float ST_TWOPI = 6.28318530718;
-vec2 _st_dirToEquirect(vec3 dir) {
-  float phi = atan(dir.z, dir.x);
-  float theta = asin(dir.y);
-  return vec2(phi / ST_TWOPI + 0.5, theta / ST_PI + 0.5);
-}
-`;
-
-// =============================================================================
-// Keyboard Helpers (auto-injected in standard mode when keyboard texture bound)
-// =============================================================================
-
-const KEYBOARD_HELPERS = `// --- Keyboard helpers (auto-injected) ---
-// Letter keys
-const int KEY_A = 65; const int KEY_B = 66; const int KEY_C = 67; const int KEY_D = 68;
-const int KEY_E = 69; const int KEY_F = 70; const int KEY_G = 71; const int KEY_H = 72;
-const int KEY_I = 73; const int KEY_J = 74; const int KEY_K = 75; const int KEY_L = 76;
-const int KEY_M = 77; const int KEY_N = 78; const int KEY_O = 79; const int KEY_P = 80;
-const int KEY_Q = 81; const int KEY_R = 82; const int KEY_S = 83; const int KEY_T = 84;
-const int KEY_U = 85; const int KEY_V = 86; const int KEY_W = 87; const int KEY_X = 88;
-const int KEY_Y = 89; const int KEY_Z = 90;
-
-// Digit keys
-const int KEY_0 = 48; const int KEY_1 = 49; const int KEY_2 = 50; const int KEY_3 = 51;
-const int KEY_4 = 52; const int KEY_5 = 53; const int KEY_6 = 54; const int KEY_7 = 55;
-const int KEY_8 = 56; const int KEY_9 = 57;
-
-// Arrow keys
-const int KEY_LEFT = 37; const int KEY_UP = 38; const int KEY_RIGHT = 39; const int KEY_DOWN = 40;
-
-// Special keys
-const int KEY_SPACE = 32;
-const int KEY_ENTER = 13;
-const int KEY_TAB = 9;
-const int KEY_ESC = 27;
-const int KEY_BACKSPACE = 8;
-const int KEY_DELETE = 46;
-const int KEY_SHIFT = 16;
-const int KEY_CTRL = 17;
-const int KEY_ALT = 18;
-
-// Function keys
-const int KEY_F1 = 112; const int KEY_F2 = 113; const int KEY_F3 = 114; const int KEY_F4 = 115;
-const int KEY_F5 = 116; const int KEY_F6 = 117; const int KEY_F7 = 118; const int KEY_F8 = 119;
-const int KEY_F9 = 120; const int KEY_F10 = 121; const int KEY_F11 = 122; const int KEY_F12 = 123;
-
-// Returns 1.0 if key is held down, 0.0 otherwise
-float keyDown(int key) {
-  return textureLod(keyboard, vec2((float(key) + 0.5) / 256.0, 0.25), 0.0).x;
-}
-
-// Returns 1.0/0.0, toggling each time the key is pressed
-float keyToggle(int key) {
-  return textureLod(keyboard, vec2((float(key) + 0.5) / 256.0, 0.75), 0.0).x;
-}
-
-// Boolean convenience helpers
-bool isKeyDown(int key) { return keyDown(key) > 0.5; }
-bool isKeyToggled(int key) { return keyToggle(key) > 0.5; }
-`;
+import { VERTEX_SHADER_SOURCE, buildFragmentShader as buildFragSource } from './shaderSource';
+import { MediaManager } from './MediaManager';
+import { UniformManager } from './UniformManager';
 
 // =============================================================================
 // ShaderEngine Implementation
@@ -146,20 +59,6 @@ export interface LineMapping {
   commonLines: number;
   /** 1-indexed line where user shader code starts in compiled source. */
   userCodeStartLine: number;
-}
-
-/** Runtime state for a single UBO-backed array uniform */
-interface UBOEntry {
-  name: string;
-  def: ArrayUniformDefinition;
-  buffer: WebGLBuffer;
-  bindingPoint: number;
-  byteSize: number;
-  dirty: boolean;
-  /** Pre-allocated std140-padded buffer, reused across frames */
-  paddedData: Float32Array;
-  /** Number of elements currently active (may be less than def.count) */
-  activeCount: number;
 }
 
 export class ShaderEngine {
@@ -193,21 +92,11 @@ export class ShaderEngine {
     lineMapping: LineMapping;
   }> = [];
 
-  // Custom uniform state manager (initialized in initCustomUniforms called by constructor)
-  private _uniforms!: UniformStore;
+  // Custom uniforms (scalars + UBO-backed arrays)
+  private _uniformMgr!: UniformManager;
 
-  // UBO-backed array uniforms
-  private _ubos: UBOEntry[] = [];
-
-  // Dirty tracking for scalar uniforms (only re-bind when changed)
-  private _dirtyScalars: Set<string> = new Set();
-
-  // Audio texture (microphone FFT + waveform)
-  private _audioTexture: RuntimeAudioTexture | null = null;
-  private _needsAudio: boolean = false;
-
-  // Video/webcam textures
-  private _videoTextures: RuntimeVideoTexture[] = [];
+  // Media (audio, video, webcam)
+  private _media: MediaManager;
 
   // Script-uploaded textures
   private _scriptTextures: Map<string, RuntimeScriptTexture> = new Map();
@@ -239,271 +128,32 @@ export class ShaderEngine {
     //    Real implementation would load images here.
     this.initProjectTextures();
 
-    // 5. Initialize audio/video textures if any channel needs them
-    this.initMediaTextures();
+    // 5. Initialize media manager (audio/video/webcam textures)
+    this._media = new MediaManager(this.gl, opts.project);
 
     // 6. Initialize custom uniform values and UBOs (must happen before shader compilation)
-    this.initCustomUniforms();
+    this._uniformMgr = new UniformManager(this.gl, opts.project.uniforms);
 
     // 6. Compile shaders + create runtime passes
     this.initRuntimePasses();
   }
 
-  /**
-   * Initialize custom uniform store and UBOs from project config.
-   */
-  private initCustomUniforms(): void {
-    this._uniforms = new UniformStore(this.project.uniforms);
-    this.initUBOs();
+  // ===========================================================================
+  // Media Delegates (forwarded to MediaManager)
+  // ===========================================================================
 
-    // Mark all scalar uniforms dirty so they bind on the first frame
-    for (const [name, def] of Object.entries(this.project.uniforms)) {
-      if (!isArrayUniform(def)) {
-        this._dirtyScalars.add(name);
-      }
-    }
-  }
+  async initAudio(): Promise<void> { return this._media.initAudio(); }
+  updateAudioTexture(): void { this._media.updateAudioTexture(this.gl); }
+  async initWebcam(): Promise<void> { return this._media.initWebcam(); }
+  async initVideo(src: string): Promise<void> { return this._media.initVideo(src); }
+  updateVideoTextures(): void { this._media.updateVideoTextures(this.gl); }
 
-  /**
-   * Create WebGL UBO buffers for all array uniforms.
-   */
-  private initUBOs(): void {
-    const gl = this.gl;
-    const maxSize = gl.getParameter(gl.MAX_UNIFORM_BLOCK_SIZE) as number;
-    const maxBindings = gl.getParameter(gl.MAX_UNIFORM_BUFFER_BINDINGS) as number;
-    let bindingPoint = 0;
-
-    for (const [name, def] of Object.entries(this.project.uniforms)) {
-      if (!isArrayUniform(def)) continue;
-
-      const byteSize = std140ByteSize(def.type, def.count);
-      if (byteSize > maxSize) {
-        throw new Error(
-          `Array uniform '${name}' requires ${byteSize} bytes but GL MAX_UNIFORM_BLOCK_SIZE is ${maxSize}`
-        );
-      }
-
-      const buffer = gl.createBuffer();
-      if (!buffer) throw new Error(`Failed to create UBO buffer for '${name}'`);
-
-      // Allocate GPU buffer
-      gl.bindBuffer(gl.UNIFORM_BUFFER, buffer);
-      gl.bufferData(gl.UNIFORM_BUFFER, byteSize, gl.DYNAMIC_DRAW);
-      gl.bindBuffer(gl.UNIFORM_BUFFER, null);
-
-      // Check binding point limit
-      if (bindingPoint >= maxBindings) {
-        throw new Error(
-          `Too many array uniforms: binding point ${bindingPoint} exceeds GL MAX_UNIFORM_BUFFER_BINDINGS (${maxBindings})`
-        );
-      }
-
-      // Bind to a binding point
-      gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, buffer);
-
-      // Pre-allocate the padded data buffer
-      const paddedData = new Float32Array(byteSize / 4);
-
-      this._ubos.push({
-        name,
-        def,
-        buffer,
-        bindingPoint,
-        byteSize,
-        dirty: false,
-        paddedData,
-        activeCount: 0,
-      });
-
-      bindingPoint++;
-    }
-  }
-
-  /**
-   * Scan all passes for audio/video/webcam channels and create placeholder textures.
-   */
-  private initMediaTextures(): void {
-    const allChannels = this.getAllChannelSources();
-
-    // Audio: create texture if any channel uses audio
-    if (allChannels.some(ch => ch.kind === 'audio')) {
-      this._needsAudio = true;
-      this._audioTexture = {
-        texture: createAudioTexture(this.gl),
-        audioContext: null,
-        analyser: null,
-        stream: null,
-        frequencyData: new Uint8Array(512),
-        waveformData: new Uint8Array(512),
-        width: 512,
-        height: 2,
-        initialized: false,
-      };
-    }
-
-    // Video/Webcam: create placeholder textures
-    for (const ch of allChannels) {
-      if (ch.kind === 'webcam') {
-        const existing = this._videoTextures.find(v => v.kind === 'webcam');
-        if (!existing) {
-          this._videoTextures.push({
-            texture: createVideoPlaceholderTexture(this.gl),
-            video: null,
-            stream: null,
-            width: 1,
-            height: 1,
-            ready: false,
-            kind: 'webcam',
-          });
-        }
-      } else if (ch.kind === 'video') {
-        const existing = this._videoTextures.find(v => v.kind === 'video' && v.src === ch.src);
-        if (!existing) {
-          this._videoTextures.push({
-            texture: createVideoPlaceholderTexture(this.gl),
-            video: null,
-            stream: null,
-            width: 1,
-            height: 1,
-            ready: false,
-            kind: 'video',
-            src: ch.src,
-          });
-        }
-      }
-    }
-  }
-
-  /**
-   * Collect all channel sources from all passes.
-   */
-  private getAllChannelSources(): ChannelSource[] {
-    const sources: ChannelSource[] = [];
-    const passes = this.project.passes;
-    for (const pass of [passes.Image, passes.BufferA, passes.BufferB, passes.BufferC, passes.BufferD]) {
-      if (pass) {
-        sources.push(...pass.channels);
-      }
-    }
-    return sources;
-  }
-
-  /**
-   * Initialize audio input (microphone). Must be called from a user gesture.
-   */
-  async initAudio(): Promise<void> {
-    if (!this._audioTexture || this._audioTexture.initialized) return;
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 1024; // 512 frequency bins
-      analyser.smoothingTimeConstant = 0.8;
-      source.connect(analyser);
-
-      this._audioTexture.audioContext = audioContext;
-      this._audioTexture.analyser = analyser;
-      this._audioTexture.stream = stream;
-      this._audioTexture.initialized = true;
-    } catch (e) {
-      console.warn('Failed to initialize audio input:', e);
-    }
-  }
-
-  /**
-   * Update audio texture with latest FFT/waveform data. Call per-frame.
-   */
-  updateAudioTexture(): void {
-    if (!this._audioTexture?.analyser) return;
-
-    this._audioTexture.analyser.getByteFrequencyData(this._audioTexture.frequencyData);
-    this._audioTexture.analyser.getByteTimeDomainData(this._audioTexture.waveformData);
-    updateAudioTextureData(
-      this.gl,
-      this._audioTexture.texture,
-      this._audioTexture.frequencyData,
-      this._audioTexture.waveformData,
-    );
-  }
-
-  /**
-   * Initialize webcam. Must be called from a user gesture.
-   */
-  async initWebcam(): Promise<void> {
-    const entry = this._videoTextures.find(v => v.kind === 'webcam' && !v.ready);
-    if (!entry) return;
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.muted = true;
-      video.playsInline = true;
-      await video.play();
-
-      entry.video = video;
-      entry.stream = stream;
-      entry.width = video.videoWidth;
-      entry.height = video.videoHeight;
-
-      // Update dimensions when metadata loads (may not be available immediately)
-      video.addEventListener('loadedmetadata', () => {
-        entry.width = video.videoWidth;
-        entry.height = video.videoHeight;
-      });
-
-      entry.ready = true;
-    } catch (e) {
-      console.warn('Failed to initialize webcam:', e);
-    }
-  }
-
-  /**
-   * Initialize video file playback.
-   */
-  async initVideo(src: string): Promise<void> {
-    const entry = this._videoTextures.find(v => v.kind === 'video' && v.src === src && !v.ready);
-    if (!entry) return;
-
-    const video = document.createElement('video');
-    video.src = src;
-    video.muted = true;
-    video.loop = true;
-    video.playsInline = true;
-    video.crossOrigin = 'anonymous';
-
-    video.addEventListener('loadedmetadata', () => {
-      entry.width = video.videoWidth;
-      entry.height = video.videoHeight;
-    });
-
-    try {
-      await video.play();
-      entry.video = video;
-      entry.ready = true;
-    } catch (e) {
-      console.warn(`Failed to play video '${src}':`, e);
-    }
-  }
-
-  /**
-   * Update all video/webcam textures with latest frame. Call per-frame.
-   */
-  updateVideoTextures(): void {
-    for (const entry of this._videoTextures) {
-      if (!entry.ready || !entry.video) continue;
-      if (entry.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue;
-
-      glUpdateVideoTexture(this.gl, entry.texture, entry.video);
-      // Update dimensions in case they weren't available at init
-      if (entry.video.videoWidth > 0) {
-        entry.width = entry.video.videoWidth;
-        entry.height = entry.video.videoHeight;
-      }
-    }
-  }
+  /** Whether this project uses audio channels. */
+  get needsAudio(): boolean { return this._media.needsAudio; }
+  /** Whether this project uses webcam channels. */
+  get needsWebcam(): boolean { return this._media.needsWebcam; }
+  /** Get video sources that need initialization. */
+  get videoSources(): string[] { return this._media.videoSources; }
 
   /**
    * Upload or update a named texture from JavaScript (for script channel).
@@ -560,23 +210,6 @@ export class ShaderEngine {
     return pixels;
   }
 
-  /** Whether this project uses audio channels. */
-  get needsAudio(): boolean {
-    return this._needsAudio;
-  }
-
-  /** Whether this project uses webcam channels. */
-  get needsWebcam(): boolean {
-    return this._videoTextures.some(v => v.kind === 'webcam');
-  }
-
-  /** Get video sources that need initialization. */
-  get videoSources(): string[] {
-    return this._videoTextures
-      .filter(v => v.kind === 'video' && !v.ready && v.src)
-      .map(v => v.src!);
-  }
-
   // ===========================================================================
   // Public API
   // ===========================================================================
@@ -622,124 +255,11 @@ export class ShaderEngine {
     return this._compilationErrors.length > 0;
   }
 
-  /**
-   * Get the uniform store for direct access to uniform state.
-   */
-  getUniformStore(): UniformStore {
-    return this._uniforms;
-  }
-
-  /**
-   * Get the current value of a custom uniform.
-   */
-  getUniformValue(name: string): UniformValue | undefined {
-    return this._uniforms.get(name);
-  }
-
-  /**
-   * Get all custom uniform values.
-   */
-  getUniformValues(): UniformValues {
-    return this._uniforms.getAll();
-  }
-
-  /**
-   * Set the value of a custom uniform.
-   * For scalar uniforms, the value will be applied on the next render frame.
-   * For array uniforms (UBOs), the data is packed to std140 and uploaded on next bind.
-   */
-  setUniformValue(name: string, value: UniformValue): void {
-    const def = this.project.uniforms[name];
-    if (!def) {
-      console.warn(`setUniformValue('${name}'): uniform not defined in config`);
-      return;
-    }
-
-    // Validate scalar uniform types
-    if (!isArrayUniform(def)) {
-      const t = def.type;
-      if ((t === 'float' || t === 'int') && typeof value !== 'number') {
-        console.warn(`setUniformValue('${name}'): expected number for ${t}, got ${typeof value}`);
-        return;
-      }
-      if (t === 'bool' && typeof value !== 'boolean') {
-        console.warn(`setUniformValue('${name}'): expected boolean, got ${typeof value}`);
-        return;
-      }
-      if (t === 'vec2' || t === 'vec3' || t === 'vec4') {
-        if (!Array.isArray(value)) {
-          console.warn(`setUniformValue('${name}'): expected array for ${t}, got ${typeof value}`);
-          return;
-        }
-        const expected = t === 'vec2' ? 2 : t === 'vec3' ? 3 : 4;
-        if (value.length !== expected) {
-          console.warn(`setUniformValue('${name}'): expected array of length ${expected} for ${t}, got ${value.length}`);
-          return;
-        }
-      }
-    }
-
-    // Store validated value
-    this._uniforms.set(name, value);
-
-    // If this is an array uniform, pack and mark dirty
-    if (isArrayUniform(def)) {
-      const ubo = this._ubos.find(u => u.name === name);
-      if (ubo) {
-        const data = value as Float32Array;
-        const maxLength = tightFloatCount(def.type, def.count);
-        const componentsPerElement = tightFloatCount(def.type, 1);
-
-        if (data.length > maxLength) {
-          console.warn(
-            `setUniformValue('${name}'): Float32Array length ${data.length} exceeds max ` +
-            `${maxLength} (${def.count} × ${def.type})`
-          );
-          return;
-        }
-        if (data.length % componentsPerElement !== 0) {
-          console.warn(
-            `setUniformValue('${name}'): Float32Array length ${data.length} is not a multiple ` +
-            `of ${componentsPerElement} (components per ${def.type})`
-          );
-          return;
-        }
-
-        const actualCount = data.length / componentsPerElement;
-
-        // Pack actual elements into std140 layout
-        const packed = packStd140(def.type, actualCount, data, ubo.paddedData);
-        // Fast-path types (vec4, mat4) return input directly; copy into paddedData
-        if (packed !== ubo.paddedData) {
-          ubo.paddedData.set(packed);
-        }
-
-        // Zero-fill the remainder of the buffer beyond the active elements
-        const activeStd140Floats = std140FloatCount(def.type, actualCount);
-        const totalStd140Floats = ubo.paddedData.length;
-        if (activeStd140Floats < totalStd140Floats) {
-          ubo.paddedData.fill(0, activeStd140Floats);
-        }
-
-        ubo.activeCount = actualCount;
-        ubo.dirty = true;
-      }
-    } else {
-      // Mark scalar uniform as dirty
-      this._dirtyScalars.add(name);
-    }
-  }
-
-  /**
-   * Set multiple custom uniform values at once.
-   */
-  setUniformValues(values: Partial<UniformValues>): void {
-    for (const [name, value] of Object.entries(values)) {
-      if (value !== undefined) {
-        this.setUniformValue(name, value);
-      }
-    }
-  }
+  getUniformStore(): UniformStore { return this._uniformMgr.store; }
+  getUniformValue(name: string): UniformValue | undefined { return this._uniformMgr.get(name); }
+  getUniformValues(): UniformValues { return this._uniformMgr.getAll(); }
+  setUniformValue(name: string, value: UniformValue): void { this._uniformMgr.set(name, value); }
+  setUniformValues(values: Partial<UniformValues>): void { this._uniformMgr.setMultiple(values); }
 
   /**
    * Get the framebuffer for the Image pass (for presenting to screen).
@@ -801,7 +321,7 @@ export class ShaderEngine {
    */
   step(timeSeconds: number, mouse: [number, number, number, number], mousePressed: boolean, touch?: {
     count: number;
-    touches: [[number, number, number, number], [number, number, number, number], [number, number, number, number]];
+    touches: BuiltinUniformValues['iTouch'];
     pinch: number;
     pinchDelta: number;
     pinchCenter: [number, number];
@@ -814,32 +334,37 @@ export class ShaderEngine {
     this._lastStepTime = timeSeconds;
     this._time = timeSeconds;
 
-    const iResolution = [this._width, this._height, 1.0] as const;
-    const iTime = this._time;
-    const iTimeDelta = deltaTime;
-    const iFrame = this._frame;
-    const iMouse = mouse;
-    const iMousePressed = mousePressed;
-
     // Compute iDate: (year, month, day, seconds since midnight)
     const now = new Date();
-    const iDate = [
-      now.getFullYear(),
-      now.getMonth(),      // 0-11 (matches Shadertoy)
-      now.getDate(),       // 1-31
-      now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds() + now.getMilliseconds() / 1000
-    ] as const;
-
-    // Compute iFrameRate (smoothed via deltaTime)
-    const iFrameRate = deltaTime > 0 ? 1.0 / deltaTime : 60.0;
 
     // Default touch state if not provided
-    const touchState = touch ?? {
+    const t = touch ?? {
       count: 0,
-      touches: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]] as [[number, number, number, number], [number, number, number, number], [number, number, number, number]],
+      touches: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]] as BuiltinUniformValues['iTouch'],
       pinch: 1.0,
       pinchDelta: 0.0,
       pinchCenter: [0, 0] as [number, number],
+    };
+
+    const builtins: BuiltinUniformValues = {
+      iResolution: [this._width, this._height, 1.0],
+      iTime: this._time,
+      iTimeDelta: deltaTime,
+      iFrame: this._frame,
+      iMouse: mouse,
+      iMousePressed: mousePressed,
+      iDate: [
+        now.getFullYear(),
+        now.getMonth(),      // 0-11 (matches Shadertoy)
+        now.getDate(),       // 1-31
+        now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds() + now.getMilliseconds() / 1000,
+      ],
+      iFrameRate: deltaTime > 0 ? 1.0 / deltaTime : 60.0,
+      iTouchCount: t.count,
+      iTouch: t.touches,
+      iPinch: t.pinch,
+      iPinchDelta: t.pinchDelta,
+      iPinchCenter: t.pinchCenter,
     };
 
     // Set viewport for all passes
@@ -852,28 +377,14 @@ export class ShaderEngine {
       const runtimePass = this._passes.find((p) => p.name === passName);
       if (!runtimePass) continue;
 
-      this.executePass(runtimePass, {
-        iResolution,
-        iTime,
-        iTimeDelta,
-        iFrame,
-        iMouse,
-        iMousePressed,
-        iDate,
-        iFrameRate,
-        iTouchCount: touchState.count,
-        iTouch: touchState.touches,
-        iPinch: touchState.pinch,
-        iPinchDelta: touchState.pinchDelta,
-        iPinchCenter: touchState.pinchCenter,
-      });
+      this.executePass(runtimePass, builtins);
 
       // Swap ping-pong textures after pass execution
       this.swapPassTextures(runtimePass);
     }
 
     // Clear scalar dirty flags after all passes have been bound
-    this._dirtyScalars.clear();
+    this._uniformMgr.clearDirty();
 
     // Monotone frame counter (increment AFTER all passes)
     this._frame += 1;
@@ -1022,11 +533,7 @@ export class ShaderEngine {
       this._compilationErrors = this._compilationErrors.filter(e => e.passName !== passName);
 
       // Mark all scalar uniforms dirty so they bind to the new program
-      for (const [uName, uDef] of Object.entries(this.project.uniforms)) {
-        if (!isArrayUniform(uDef)) {
-          this._dirtyScalars.add(uName);
-        }
-      }
+      this._uniformMgr.markAllScalarsDirty();
 
       return { success: true };
     } catch (err) {
@@ -1076,7 +583,11 @@ export class ShaderEngine {
         if (errors.some(e => e.passName === passName)) continue;
 
         // Recompile with old common source
-        this.recompilePass(passName, projectPass.glslSource);
+        const revert = this.recompilePass(passName, projectPass.glslSource);
+        if (!revert.success) {
+          console.error(`Failed to revert ${passName} to old common source:`, revert.error);
+          errors.push({ passName, error: `Revert failed: ${revert.error}` });
+        }
       }
 
       return { success: false, errors };
@@ -1115,15 +626,15 @@ export class ShaderEngine {
       gl.deleteTexture(this._blackTexture);
     }
 
-    // Delete UBO buffers
-    for (const ubo of this._ubos) {
-      gl.deleteBuffer(ubo.buffer);
-    }
+    // Dispose uniform manager (UBO buffers)
+    this._uniformMgr.dispose(gl);
+
+    // Dispose media resources
+    this._media.dispose(gl);
 
     // Clear arrays
     this._passes = [];
     this._textures = [];
-    this._ubos = [];
     this._keyboardTexture = null;
     this._blackTexture = null;
   }
@@ -1163,13 +674,7 @@ export class ShaderEngine {
     }
 
     // Bind UBO block indices and cache _count uniform locations for this program
-    for (const ubo of this._ubos) {
-      const blockIndex = gl.getUniformBlockIndex(program, `_ub_${ubo.name}`);
-      if (blockIndex !== gl.INVALID_INDEX) {
-        gl.uniformBlockBinding(program, blockIndex, ubo.bindingPoint);
-      }
-      customLocations.set(`${ubo.name}_count`, gl.getUniformLocation(program, `${ubo.name}_count`));
-    }
+    this._uniformMgr.bindUBOsToProgram(gl, program, customLocations);
 
     return {
       program,
@@ -1382,182 +887,13 @@ export class ShaderEngine {
 
   /**
    * Build complete fragment shader source with Shadertoy boilerplate.
-   *
-   * @param userSource - The user's GLSL source code
-   * @param channels - Channel configuration for this pass (to detect cubemap textures)
    */
   private buildFragmentShader(userSource: string, channels: ChannelSource[], namedSamplers?: Map<string, ChannelSource>): { source: string; lineMapping: LineMapping } {
-    const parts: string[] = [FRAGMENT_PREAMBLE];
-
-    // Common code (if any)
-    if (this.project.commonSource) {
-      parts.push('// Common code');
-      parts.push(this.project.commonSource);
-      parts.push('');
-    }
-
-    if (namedSamplers && namedSamplers.size > 0) {
-      // Standard mode: named samplers + core time/mouse uniforms (no iChannel)
-      parts.push(`// Core uniforms
-uniform vec3  iResolution;
-uniform float iTime;
-uniform float iTimeDelta;
-uniform int   iFrame;
-uniform vec4  iMouse;
-uniform bool  iMousePressed;
-uniform vec4  iDate;
-uniform float iFrameRate;
-
-// Shader Sandbox touch extensions
-uniform int   iTouchCount;
-uniform vec4  iTouch0;
-uniform vec4  iTouch1;
-uniform vec4  iTouch2;
-uniform float iPinch;
-uniform float iPinchDelta;
-uniform vec2  iPinchCenter;
-`);
-
-      // Named sampler declarations
-      parts.push('// Named samplers');
-      for (const [name] of namedSamplers) {
-        parts.push(`uniform sampler2D ${name};`);
-        parts.push(`uniform vec3 ${name}_resolution;`);
-      }
-      parts.push('');
-
-      // Auto-inject keyboard constants and helpers when keyboard texture is bound
-      if (namedSamplers.has('keyboard')) {
-        parts.push(KEYBOARD_HELPERS);
-        parts.push('');
-      }
-    } else {
-      // Shadertoy mode: iChannel0-3
-      parts.push(`// Shadertoy built-in uniforms
-uniform vec3  iResolution;
-uniform float iTime;
-uniform float iTimeDelta;
-uniform int   iFrame;
-uniform vec4  iMouse;
-uniform bool  iMousePressed;
-uniform vec4  iDate;
-uniform float iFrameRate;
-uniform vec3  iChannelResolution[4];
-uniform sampler2D iChannel0;
-uniform sampler2D iChannel1;
-uniform sampler2D iChannel2;
-uniform sampler2D iChannel3;
-
-// Shader Sandbox touch extensions (not in Shadertoy)
-uniform int   iTouchCount;          // Number of active touches (0-10)
-uniform vec4  iTouch0;              // Primary touch: (x, y, startX, startY)
-uniform vec4  iTouch1;              // Second touch
-uniform vec4  iTouch2;              // Third touch
-uniform float iPinch;               // Pinch scale factor (1.0 = no pinch)
-uniform float iPinchDelta;          // Pinch change since last frame
-uniform vec2  iPinchCenter;         // Center point of pinch gesture
-`);
-    }
-
-    // Array uniform blocks (UBOs) - auto-injected so user doesn't need to declare them.
-    // Each block is named with a `_ub_` prefix (e.g., `_ub_matrices`) to avoid
-    // collisions with user code. The array inside uses the original uniform name,
-    // so shader code references it directly (e.g., `matrices[i]`).
-    for (const ubo of this._ubos) {
-      parts.push(`// Array uniform: ${ubo.name} (max ${ubo.def.count})`);
-      parts.push(`layout(std140) uniform _ub_${ubo.name} {`);
-      parts.push(`  ${glslTypeName(ubo.def.type)} ${ubo.name}[${ubo.def.count}];`);
-      parts.push(`};`);
-      parts.push(`uniform int ${ubo.name}_count;`);
-      parts.push('');
-    }
-
-    // Scalar custom uniforms - auto-injected so user doesn't need to declare them
-    const scalarUniforms = Object.entries(this.project.uniforms)
-      .filter(([, def]) => !isArrayUniform(def));
-    if (scalarUniforms.length > 0) {
-      parts.push('// Custom uniforms');
-      for (const [name, def] of scalarUniforms) {
-        const glslType = def.type === 'bool' ? 'bool' : def.type;
-        parts.push(`uniform ${glslType} ${name};`);
-      }
-      parts.push('');
-    }
-
-    // Preprocess user shader code to handle cubemap-style texture sampling
-    const processedSource = this.preprocessCubemapTextures(userSource, channels);
-
-    // User shader code
-    parts.push('// User shader code');
-    parts.push(processedSource);
-    parts.push('');
-
-    // mainImage() wrapper
-    parts.push(`// Main wrapper
-out vec4 fragColor;
-
-void main() {
-  mainImage(fragColor, gl_FragCoord.xy);
-}`);
-
-    const source = parts.join('\n');
-
-    // Compute line mapping by finding marker comments
-    const sourceLines = source.split('\n');
-    let commonStartLine = 0;
-    let commonLines = 0;
-    let userCodeStartLine = 0;
-
-    for (let i = 0; i < sourceLines.length; i++) {
-      if (sourceLines[i] === '// Common code') {
-        commonStartLine = i + 2; // 1-indexed, skip the comment itself
-        commonLines = this.project.commonSource ? this.project.commonSource.split('\n').length : 0;
-      }
-      if (sourceLines[i] === '// User shader code') {
-        userCodeStartLine = i + 2; // 1-indexed, skip the comment itself
-      }
-    }
-
-    return {
-      source,
-      lineMapping: { commonStartLine, commonLines, userCodeStartLine },
-    };
-  }
-
-  /**
-   * Preprocess shader to convert cubemap-style texture() calls to equirectangular.
-   *
-   * Uses the channel configuration to determine which channels are cubemaps.
-   * Only channels explicitly marked as `type: 'cubemap'` in config.json will have
-   * their texture() calls wrapped with _st_dirToEquirect().
-   *
-   * @param source - User's GLSL source code
-   * @param channels - Channel configuration for this pass
-   */
-  private preprocessCubemapTextures(source: string, channels: ChannelSource[]): string {
-    // Build set of channel names that are cubemaps
-    const cubemapChannels = new Set<string>();
-    channels.forEach((ch, i) => {
-      if (ch.kind === 'texture' && ch.cubemap) {
-        cubemapChannels.add(`iChannel${i}`);
-      }
-    });
-
-    // If no cubemap channels, return source unchanged
-    if (cubemapChannels.size === 0) {
-      return source;
-    }
-
-    // Match: texture(iChannelN, ...)
-    const textureCallRegex = /texture\s*\(\s*(iChannel[0-3])\s*,\s*([^)]+)\)/g;
-
-    return source.replace(textureCallRegex, (match, channel, coord) => {
-      // Only wrap if this channel is explicitly marked as cubemap
-      if (cubemapChannels.has(channel)) {
-        return `texture(${channel}, _st_dirToEquirect(${coord}))`;
-      } else {
-        return match;
-      }
+    return buildFragSource(userSource, channels, {
+      commonSource: this.project.commonSource ?? '',
+      ubos: this._uniformMgr.ubos.map(u => ({ name: u.name, def: u.def, count: u.def.count })),
+      uniforms: this.project.uniforms,
+      namedSamplers,
     });
   }
 
@@ -1567,21 +903,7 @@ void main() {
 
   private executePass(
     runtimePass: RuntimePass,
-    builtinUniforms: {
-      iResolution: readonly [number, number, number];
-      iTime: number;
-      iTimeDelta: number;
-      iFrame: number;
-      iMouse: [number, number, number, number];
-      iMousePressed: boolean;
-      iDate: readonly [number, number, number, number];
-      iFrameRate: number;
-      iTouchCount: number;
-      iTouch: [[number, number, number, number], [number, number, number, number], [number, number, number, number]];
-      iPinch: number;
-      iPinchDelta: number;
-      iPinchCenter: [number, number];
-    }
+    builtinUniforms: BuiltinUniformValues,
   ): void {
     const gl = this.gl;
 
@@ -1598,7 +920,7 @@ void main() {
     this.bindBuiltinUniforms(runtimePass.uniforms, builtinUniforms);
 
     // Bind custom uniforms
-    this.bindCustomUniforms(runtimePass.uniforms);
+    this._uniformMgr.bindToProgram(gl, runtimePass.uniforms);
 
     // Bind textures: named samplers (standard mode) or iChannels (shadertoy mode)
     if (runtimePass.namedSamplers && runtimePass.namedSamplers.size > 0) {
@@ -1618,21 +940,7 @@ void main() {
 
   private bindBuiltinUniforms(
     uniforms: PassUniformLocations,
-    values: {
-      iResolution: readonly [number, number, number];
-      iTime: number;
-      iTimeDelta: number;
-      iFrame: number;
-      iMouse: [number, number, number, number];
-      iMousePressed: boolean;
-      iDate: readonly [number, number, number, number];
-      iFrameRate: number;
-      iTouchCount: number;
-      iTouch: [[number, number, number, number], [number, number, number, number], [number, number, number, number]];
-      iPinch: number;
-      iPinchDelta: number;
-      iPinchCenter: [number, number];
-    }
+    values: BuiltinUniformValues,
   ): void {
     const gl = this.gl;
 
@@ -1692,65 +1000,6 @@ void main() {
 
     if (uniforms.iPinchCenter) {
       gl.uniform2f(uniforms.iPinchCenter, values.iPinchCenter[0], values.iPinchCenter[1]);
-    }
-  }
-
-  /**
-   * Bind custom uniform values to the current program.
-   */
-  private bindCustomUniforms(uniforms: PassUniformLocations): void {
-    const gl = this.gl;
-
-    // Upload dirty UBOs; always bind _count (regular uniforms reset per-program use)
-    for (const ubo of this._ubos) {
-      if (ubo.dirty) {
-        gl.bindBuffer(gl.UNIFORM_BUFFER, ubo.buffer);
-        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, ubo.paddedData);
-        ubo.dirty = false;
-      }
-      const loc = uniforms.custom.get(`${ubo.name}_count`);
-      if (loc) {
-        gl.uniform1i(loc, ubo.activeCount);
-      }
-    }
-
-    // Only re-bind scalar uniforms that have changed since last frame
-    for (const name of this._dirtyScalars) {
-      const def = this.project.uniforms[name];
-      if (!def || isArrayUniform(def)) continue;
-
-      const value = this._uniforms.get(name);
-      if (value === undefined) continue;
-
-      const location = uniforms.custom.get(name);
-      if (!location) continue;
-
-      switch (def.type) {
-        case 'float':
-          gl.uniform1f(location, value as number);
-          break;
-        case 'int':
-          gl.uniform1i(location, value as number);
-          break;
-        case 'bool':
-          gl.uniform1i(location, (value as boolean) ? 1 : 0);
-          break;
-        case 'vec2': {
-          const v = value as number[];
-          gl.uniform2f(location, v[0], v[1]);
-          break;
-        }
-        case 'vec3': {
-          const v = value as number[];
-          gl.uniform3f(location, v[0], v[1], v[2]);
-          break;
-        }
-        case 'vec4': {
-          const v = value as number[];
-          gl.uniform4f(location, v[0], v[1], v[2], v[3]);
-          break;
-        }
-      }
     }
   }
 
@@ -1845,18 +1094,18 @@ void main() {
         return this._keyboardTexture.texture;
 
       case 'audio':
-        if (!this._audioTexture) {
+        if (!this._media.audioTexture) {
           return this._blackTexture!;
         }
-        return this._audioTexture.texture;
+        return this._media.audioTexture.texture;
 
       case 'webcam': {
-        const webcam = this._videoTextures.find(v => v.kind === 'webcam');
+        const webcam = this._media.videoTextures.find(v => v.kind === 'webcam');
         return webcam?.texture ?? this._blackTexture!;
       }
 
       case 'video': {
-        const video = this._videoTextures.find(v => v.kind === 'video' && v.src === source.src);
+        const video = this._media.videoTextures.find(v => v.kind === 'video' && v.src === source.src);
         return video?.texture ?? this._blackTexture!;
       }
 
@@ -1889,15 +1138,15 @@ void main() {
         return [256, 3];
 
       case 'audio':
-        return this._audioTexture ? [this._audioTexture.width, this._audioTexture.height] : [0, 0];
+        return this._media.audioTexture ? [this._media.audioTexture.width, this._media.audioTexture.height] : [0, 0];
 
       case 'webcam': {
-        const webcam = this._videoTextures.find(v => v.kind === 'webcam');
+        const webcam = this._media.videoTextures.find(v => v.kind === 'webcam');
         return webcam ? [webcam.width, webcam.height] : [0, 0];
       }
 
       case 'video': {
-        const video = this._videoTextures.find(v => v.kind === 'video' && v.src === source.src);
+        const video = this._media.videoTextures.find(v => v.kind === 'video' && v.src === source.src);
         return video ? [video.width, video.height] : [0, 0];
       }
 

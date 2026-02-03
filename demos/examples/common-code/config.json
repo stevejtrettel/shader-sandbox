@@ -3,5 +3,5 @@
   "description": "Shared GLSL functions across passes via common.glsl",
   "layout": "split",
   "controls": true,
-  "buffers": ["pattern"]
+  "buffers": { "pattern": {} }
 }

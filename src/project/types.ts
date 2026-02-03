@@ -370,23 +370,15 @@ export interface StandardConfig {
 
   /**
    * Named buffers (framebuffers with ping-pong).
-   * Array shorthand ["velocity"] normalizes to { "velocity": {} }.
    * Max 4 buffers (maps to BufferA-D internally).
    */
-  buffers?: string[] | Record<string, StandardBufferConfig>;
+  buffers?: Record<string, StandardBufferConfig>;
 
   /**
    * Named textures available in all passes.
    * Value is a file path or special source: "keyboard", "audio", "webcam".
    */
   textures?: Record<string, string>;
-
-  // Pass-level configs (for standard mode without named buffers)
-  Image?: PassConfigSimplified;
-  BufferA?: PassConfigSimplified;
-  BufferB?: PassConfigSimplified;
-  BufferC?: PassConfigSimplified;
-  BufferD?: PassConfigSimplified;
 }
 
 /**

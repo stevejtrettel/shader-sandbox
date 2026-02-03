@@ -1,6 +1,6 @@
 # Shader Sandbox
 
-A local GLSL shader development environment with two modes: **Shadertoy mode** for direct Shadertoy compatibility, and **Standard mode** with extended features like custom uniforms, scripting, and named buffers.
+A local GLSL shader development environment with custom uniforms, named buffers, scripting, and live reload.
 
 ## Quick Start
 
@@ -23,7 +23,7 @@ Open http://localhost:3000 to see your shader running.
 shader create <name>     # Create a new shader project
 shader dev <name>        # Run shader with live reload
 shader build <name>      # Build shader for production
-shader new <name>        # Create a new shader file
+shader new <name>        # Create a new shader
 shader list              # List all shaders
 shader init              # Initialize shaders in current directory
 ```
@@ -38,62 +38,11 @@ my-shaders/
 │       ├── bufferA.glsl      # Buffer passes (optional)
 │       ├── common.glsl       # Shared code across passes (optional)
 │       ├── config.json       # Configuration (optional)
-│       └── script.js         # JavaScript hooks (optional, standard mode)
+│       └── script.js         # JavaScript hooks (optional)
 ├── main.ts
 ├── vite.config.js
 └── package.json
 ```
-
-## The Two Modes
-
-### Shadertoy Mode
-
-Set `"mode": "shadertoy"` in config.json. Shaders copied from [Shadertoy](https://www.shadertoy.com) work without modification. Channels are bound per-pass using `iChannel0`–`iChannel3`.
-
-```json
-{
-  "mode": "shadertoy",
-  "BufferA": {
-    "iChannel0": "BufferA"
-  },
-  "Image": {
-    "iChannel0": "BufferA"
-  }
-}
-```
-
-### Standard Mode
-
-The default mode (omit `"mode"` or set `"mode": "standard"`). Extends Shadertoy with:
-
-- **Custom uniforms** with auto-generated UI controls
-- **Named buffers and textures** available globally to all passes
-- **Array uniforms** backed by Uniform Buffer Objects
-- **JavaScript scripting** with per-frame hooks
-- **Keyboard helper functions** (`isKeyDown`, `keyToggle`, etc.)
-
-```json
-{
-  "buffers": ["velocity", "pressure"],
-  "textures": { "heightmap": "terrain.png" },
-  "uniforms": {
-    "uSpeed": { "type": "float", "value": 1.0, "min": 0, "max": 5 }
-  }
-}
-```
-
-In standard mode, named buffers and textures are injected as globally available samplers — reference them directly by name in any pass:
-
-```glsl
-void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    vec2 uv = fragCoord / iResolution.xy;
-    vec4 vel = texture(velocity, uv);
-    vec4 h = texture(heightmap, uv);
-    fragColor = vel + h * uSpeed;
-}
-```
-
-You can also use `iChannel0`–`iChannel3` bindings in standard mode, the same as in shadertoy mode.
 
 ## Writing Shaders
 
@@ -111,59 +60,81 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
 Create `bufferA.glsl` through `bufferD.glsl` alongside `image.glsl`. Passes execute in order (BufferA → BufferB → BufferC → BufferD → Image) with ping-pong semantics — each buffer reads its own previous frame output.
 
-**bufferA.glsl:**
+#### Named Buffers
+
+Define named buffers in config.json. They become globally available samplers in every pass — reference them directly by name:
+
+```json
+{
+  "buffers": {
+    "velocity": {},
+    "pressure": { "filter": "nearest", "wrap": "clamp" }
+  }
+}
+```
+
+Options: `filter` (`"linear"` | `"nearest"`), `wrap` (`"repeat"` | `"clamp"`). Max 4 buffers (mapped to BufferA–D internally).
+
 ```glsl
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
-    vec4 prev = texture(iChannel0, uv) * 0.98;
-    vec2 mouse = iMouse.xy / iResolution.xy;
-    float spot = smoothstep(0.05, 0.0, length(uv - mouse));
-    fragColor = prev + vec4(spot);
+    vec4 vel = texture(velocity, uv);
+    vec4 p = texture(pressure, uv);
+    fragColor = vel + p;
 }
 ```
 
-**config.json:**
+#### Textures
+
+Load image files as globally available samplers:
+
 ```json
 {
-  "BufferA": { "iChannel0": "BufferA" },
-  "Image": { "iChannel0": "BufferA" }
+  "textures": {
+    "heightmap": "terrain.png"
+  }
 }
 ```
 
-### Common Code
+```glsl
+vec4 h = texture(heightmap, uv);
+```
 
-Create `common.glsl` to share functions across all passes. It is prepended to every pass automatically.
+Texture options can be specified with an object:
 
-## Channel Types
-
-Channels can be bound as string shortcuts or objects with options:
-
-| Shorthand | Object Form | Description |
-|-----------|-------------|-------------|
-| `"BufferA"` | `{ "buffer": "BufferA" }` | Buffer pass output |
-| `"photo.jpg"` | `{ "texture": "photo.jpg" }` | Image file |
-| `"keyboard"` | `{ "keyboard": true }` | Keyboard state texture |
-| `"audio"` | `{ "audio": true }` | Microphone FFT + waveform |
-| `"webcam"` | `{ "webcam": true }` | Live webcam feed |
-| — | `{ "video": "clip.mp4" }` | Video file |
-| — | `{ "script": "myData" }` | Script-uploaded texture |
-
-Texture options:
 ```json
 {
-  "Image": {
-    "iChannel0": {
-      "texture": "photo.jpg",
+  "textures": {
+    "heightmap": {
+      "texture": "terrain.png",
       "filter": "nearest",
       "wrap": "clamp"
+    },
+    "environment": {
+      "texture": "skybox.png",
+      "type": "cubemap"
     }
   }
 }
 ```
 
-## Built-in Uniforms
+Options: `filter` (`"linear"` | `"nearest"`), `wrap` (`"repeat"` | `"clamp"`), `type` (`"2d"` | `"cubemap"`). Cubemap textures use equirectangular projection.
 
-All standard Shadertoy uniforms are available in both modes:
+Special texture sources:
+
+| Value | Description |
+|-------|-------------|
+| `"keyboard"` | Keyboard state texture |
+| `"audio"` | Microphone FFT + waveform |
+| `"webcam"` | Live webcam feed |
+| `{ "video": "clip.mp4" }` | Video file |
+| `{ "script": "myData" }` | Script-uploaded texture |
+
+### Common Code
+
+Create `common.glsl` to share functions across all passes. It is prepended to every pass automatically.
+
+## Built-in Uniforms
 
 | Uniform | Type | Description |
 |---------|------|-------------|
@@ -173,9 +144,8 @@ All standard Shadertoy uniforms are available in both modes:
 | `iFrame` | `int` | Frame counter |
 | `iFrameRate` | `float` | Frames per second |
 | `iMouse` | `vec4` | Mouse position and click state |
+| `iMousePressed` | `bool` | Whether mouse button is currently pressed |
 | `iDate` | `vec4` | Year, month, day, seconds since midnight |
-| `iChannel0–3` | `sampler2D` | Input textures/buffers |
-| `iChannelResolution[4]` | `vec3[]` | Resolution of each channel |
 
 ### Touch Uniforms
 
@@ -187,7 +157,7 @@ All standard Shadertoy uniforms are available in both modes:
 | `iPinchDelta` | `float` | Change in pinch since last frame |
 | `iPinchCenter` | `vec2` | Midpoint between pinch fingers |
 
-## Custom Uniforms (Standard Mode)
+## Custom Uniforms
 
 Define uniforms in config.json and they are auto-injected into your shader — no `uniform` declarations needed:
 
@@ -239,8 +209,6 @@ For large data arrays, use array uniforms backed by Uniform Buffer Objects:
 
 Supported array types: `float`, `vec2`, `vec3`, `vec4`, `mat3`, `mat4`. Array uniforms have no UI — set their data from JavaScript via the scripting API.
 
-In shaders, reference the array by name:
-
 ```glsl
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec3 p = positions[0].xyz;
@@ -249,7 +217,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 }
 ```
 
-## Scripting API (Standard Mode)
+## Scripting API
 
 Add a `script.js` to your shader folder for per-frame computation:
 
@@ -283,11 +251,19 @@ export function onFrame(engine, time, deltaTime, frame) {
 
 ## Keyboard Input
 
-Bind a channel to `"keyboard"` to get a 256×3 texture of key states:
+Add `"keyboard"` as a named texture to get a 256x3 texture of key states:
+
+```json
+{
+  "textures": { "keyboard": "keyboard" }
+}
+```
+
+The texture has three rows:
 - Row 0: key pressed (1.0 if held down)
 - Row 2: key toggle (flips on each press)
 
-In **standard mode**, helper constants and functions are auto-injected:
+Helper constants and functions are auto-injected:
 
 ```glsl
 // Constants: KEY_A through KEY_Z, KEY_SPACE, KEY_ENTER, KEY_UP, KEY_DOWN, etc.
@@ -318,7 +294,18 @@ Set `"layout"` in config.json:
 | **S** | Screenshot (PNG) |
 | **R** | Reset to frame 0 |
 
-Set `"controls": true` in config to show on-screen buttons for play/pause, reset, screenshot, record, and export.
+Set `"controls": true` in config to show on-screen buttons for play/pause, reset, screenshot, record, and export. A stats panel displays FPS, elapsed time, frame count, and canvas resolution.
+
+## Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `layout` | string | `"default"` | Canvas layout mode (see Layouts) |
+| `theme` | string | `"system"` | `"light"`, `"dark"`, or `"system"` (follows OS preference) |
+| `controls` | boolean | `false` | Show on-screen playback controls |
+| `startPaused` | boolean | `false` | Start with animation paused |
+| `pixelRatio` | number | device ratio | Canvas resolution multiplier (use < 1 for performance) |
+| `common` | string | — | Path to shared GLSL file prepended to all passes |
 
 ## Recording and Export
 
@@ -390,29 +377,35 @@ const { app, destroy } = await embed({
 });
 ```
 
-## Configuration Reference
+## Shadertoy Mode
 
-Full `config.json` fields:
+Set `"mode": "shadertoy"` in config.json for direct compatibility with shaders copied from [Shadertoy](https://www.shadertoy.com). Shaders work without modification.
+
+In Shadertoy mode, channels are bound per-pass using `iChannel0`–`iChannel3`:
 
 ```json
 {
-  "mode": "shadertoy | standard",
-  "title": "My Shader",
-  "author": "Name",
-  "description": "...",
-  "layout": "fullscreen | default | split | tabbed | ui",
-  "theme": "light | dark | system",
-  "controls": true,
-  "common": "common.glsl",
-  "startPaused": false,
-  "pixelRatio": 1.0,
-  "buffers": ["velocity", "pressure"],
-  "textures": { "heightmap": "terrain.png", "input": "keyboard" },
-  "uniforms": { "uSpeed": { "type": "float", "value": 1.0 } },
-  "BufferA": { "iChannel0": "BufferA" },
-  "Image": { "iChannel0": "BufferA" }
+  "mode": "shadertoy",
+  "BufferA": {
+    "iChannel0": "BufferA"
+  },
+  "Image": {
+    "iChannel0": "BufferA"
+  }
 }
 ```
+
+Channels can be bound as string shortcuts or objects with options:
+
+| Shorthand | Object Form | Description |
+|-----------|-------------|-------------|
+| `"BufferA"` | `{ "buffer": "BufferA" }` | Buffer pass output |
+| `"photo.jpg"` | `{ "texture": "photo.jpg" }` | Image file |
+| `"keyboard"` | `{ "keyboard": true }` | Keyboard state texture |
+| `"audio"` | `{ "audio": true }` | Microphone FFT + waveform |
+| `"webcam"` | `{ "webcam": true }` | Live webcam feed |
+
+The `iChannel0`–`iChannel3` samplers and `iChannelResolution[4]` uniforms are available in Shadertoy mode. These channel bindings can also be used in standard mode alongside named buffers and textures.
 
 ## License
 

@@ -1,0 +1,18 @@
+{
+  "layout": "tabbed",
+  "controls": true,
+  "mode": "shadertoy",
+
+  "BufferA": {},
+  "BufferB": {
+    "iChannel0": "BufferA"
+  },
+  "BufferC": {
+    "iChannel0": "BufferB"
+  },
+  "Image": {
+    "iChannel0": "BufferA",
+    "iChannel1": "BufferB",
+    "iChannel2": "BufferC"
+  }
+}

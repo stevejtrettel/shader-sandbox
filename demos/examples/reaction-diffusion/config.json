@@ -1,0 +1,14 @@
+{
+  "title": "Reaction-Diffusion",
+  "description": "Gray-Scott reaction-diffusion using two named buffers",
+  "layout": "default",
+  "controls": true,
+  "buffers": {
+    "field_a": {},
+    "field_b": {}
+  },
+  "uniforms": {
+    "uFeed": { "type": "float", "value": 0.055, "min": 0.0, "max": 0.1, "step": 0.001, "label": "Feed Rate" },
+    "uKill": { "type": "float", "value": 0.062, "min": 0.0, "max": 0.1, "step": 0.001, "label": "Kill Rate" }
+  }
+}
