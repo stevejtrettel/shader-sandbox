@@ -18,7 +18,7 @@ function getShaderName(): string {
 
   // Fall back to env variable (set by vite define)
   // @ts-ignore
-  return typeof __SHADER_NAME__ !== 'undefined' ? __SHADER_NAME__ : 'example-gradient';
+  return typeof __SHADER_NAME__ !== 'undefined' ? __SHADER_NAME__ : 'simple';
 }
 
 async function main() {

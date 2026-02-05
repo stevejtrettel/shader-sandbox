@@ -5,17 +5,31 @@ A local GLSL shader development environment with custom uniforms, named buffers,
 ## Quick Start
 
 ```bash
-# Create a new shader project
-npx @stevejtrettel/shader-sandbox create my-shaders
-
+# Create a new project
+npx @stevejtrettel/shader-sandbox@latest create my-shaders
 cd my-shaders
+npx shader dev simple
+```
 
-# Create and run a shader
-shader new my-shader
-shader dev my-shader
+Or initialize in an existing folder:
+```bash
+cd my-existing-project
+npx @stevejtrettel/shader-sandbox@latest create .
+npx shader dev simple
 ```
 
 Open http://localhost:3000 to see your shader running.
+
+### Global Install
+
+Install globally to skip the `npx` prefix:
+
+```bash
+npm install -g @stevejtrettel/shader-sandbox
+
+shader create my-shaders    # or: shader create .
+shader dev simple
+```
 
 ## Examples
 
@@ -32,13 +46,15 @@ See more examples in the [demos/examples](https://github.com/stevejtrettel/shade
 ## CLI Commands
 
 ```bash
-shader create <name>     # Create a new shader project
+shader create <name>     # Create new project folder
+shader create .          # Initialize in current folder
 shader dev <name>        # Run shader with live reload
-shader build <name>      # Build shader for production
+shader build <name>      # Build for production
 shader new <name>        # Create a new shader
 shader list              # List all shaders
-shader init              # Initialize shaders in current directory
 ```
+
+Use `npx shader` if not installed globally.
 
 ## Project Structure
 

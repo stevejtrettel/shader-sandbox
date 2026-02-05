@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js';
 
 // Get shader name from command line args or env
-const shaderName = process.env.SHADER_NAME || 'example-gradient';
+const shaderName = process.env.SHADER_NAME || 'simple';
 
 export default defineConfig({
   plugins: [
