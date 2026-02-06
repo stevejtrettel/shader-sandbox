@@ -13,9 +13,9 @@ import './app.css';
 
 import { ShaderEngine } from '../engine/ShaderEngine';
 import { ErrorOverlay } from './ErrorOverlay';
-import { ShaderProject, ScriptEngineAPI } from '../project/types';
+import { ShaderProject, ScriptEngineAPI, CrossViewState, OverlayPosition } from '../project/types';
 import { UniformsPanel } from '../uniforms/UniformsPanel';
-import { AppOptions } from './types';
+import { AppOptions, MouseState } from './types';
 import { exportHTML as exportHTMLFile } from './exportHTML';
 import { Recorder } from './Recorder';
 import { StatsPanel } from './StatsPanel';
@@ -78,6 +78,13 @@ export class App {
   private globalKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private controlsKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
+  // External animation loop mode (for multi-view AppGroup coordination)
+  // Stored for future use when App needs to know it's externally coordinated
+  private _externalAnimationLoop: boolean = false;
+
+  // Script info overlays (one per corner position)
+  private overlays: Map<OverlayPosition, HTMLElement> = new Map();
+
   constructor(opts: AppOptions) {
     this.container = opts.container;
     this.project = opts.project;
@@ -138,10 +145,14 @@ export class App {
     this.updateCanvasSize();
     this.statsPanel.updateResolution(this.canvas.width, this.canvas.height);
 
-    // Create engine
+    // Store external animation loop flag
+    this._externalAnimationLoop = opts.externalAnimationLoop ?? false;
+
+    // Create engine (pass viewNames for cross-view uniform support)
     this.engine = new ShaderEngine({
       gl: this.gl,
       project: opts.project,
+      viewNames: opts.viewNames,
     });
 
     // Check for compilation errors and show overlay if needed
@@ -165,6 +176,7 @@ export class App {
         readPixels: (passName, x, y, w, h) => self.engine.readPixels(passName as any, x, y, w, h),
         get width() { return self.engine.width; },
         get height() { return self.engine.height; },
+        setOverlay: (position, text) => self.setOverlay(position, text),
       };
 
       if (this.project.script.setup) {
@@ -276,8 +288,13 @@ export class App {
 
   /**
    * Start the animation loop.
+   * When externalAnimationLoop is true, this is a no-op since AppGroup manages timing.
    */
   start(): void {
+    if (this._externalAnimationLoop) {
+      return; // Externally coordinated by AppGroup
+    }
+
     if (this.animationId !== null) {
       return; // Already running
     }
@@ -294,6 +311,120 @@ export class App {
       cancelAnimationFrame(this.animationId);
       this.animationId = null;
     }
+  }
+
+  // ===========================================================================
+  // Multi-View Support (for AppGroup coordination)
+  // ===========================================================================
+
+  /**
+   * Get current mouse state for cross-view uniforms.
+   */
+  getMouseState(): MouseState {
+    return [...this.input.mouse] as MouseState;
+  }
+
+  /**
+   * Get current canvas resolution for cross-view uniforms.
+   */
+  getResolution(): [number, number, number] {
+    return [this.canvas.width, this.canvas.height, 1.0];
+  }
+
+  /**
+   * Get current mouse pressed state for cross-view uniforms.
+   */
+  getMousePressed(): boolean {
+    return this.input.isMouseDown;
+  }
+
+  /**
+   * Step the engine with external time control and cross-view state.
+   * Used by AppGroup to coordinate multiple views.
+   *
+   * @param time - Elapsed time in seconds (shared across all views)
+   * @param frame - Frame number (shared across all views)
+   * @param crossViewStates - State from all views for cross-view uniforms
+   */
+  stepExternal(time: number, frame: number, crossViewStates?: Map<string, CrossViewState>): void {
+    if (this.disposed || this.isContextLost) return;
+
+    // Update FPS counter and stats
+    const currentTimeSec = performance.now() / 1000;
+    this.statsPanel.update(currentTimeSec, time);
+
+    // Forward key events to engine and update keyboard texture
+    for (const evt of this.input.getAndClearKeyEvents()) {
+      this.engine.updateKeyState(evt.keycode, evt.down);
+    }
+    this.engine.updateKeyboardTexture();
+
+    // Update media textures
+    this.engine.updateAudioTexture();
+    this.engine.updateVideoTextures();
+
+    // Run script onFrame hook
+    if (this.scriptAPI && this.project.script?.onFrame && this.scriptErrorCount < App.MAX_SCRIPT_ERRORS) {
+      const deltaTime = this._lastOnFrameTime !== null ? time - this._lastOnFrameTime : 0;
+      try {
+        this.project.script.onFrame(this.scriptAPI, time, deltaTime, frame);
+        this.scriptErrorCount = 0;
+      } catch (e) {
+        this.scriptErrorCount++;
+        console.error(`script.js onFrame() threw (${this.scriptErrorCount}/${App.MAX_SCRIPT_ERRORS}):`, e);
+        if (this.scriptErrorCount >= App.MAX_SCRIPT_ERRORS) {
+          console.warn('script.js onFrame() disabled after too many errors');
+        }
+      }
+      this._lastOnFrameTime = time;
+    }
+
+    // Run engine step with mouse, touch, and cross-view data
+    this.engine.step(time, this.input.mouse, this.input.isMouseDown, {
+      count: this.input.touchState.count,
+      touches: this.input.touchState.touches,
+      pinch: this.input.touchState.pinch,
+      pinchDelta: this.input.touchState.pinchDelta,
+      pinchCenter: this.input.touchState.pinchCenter,
+    }, crossViewStates);
+
+    // Reset pinchDelta after frame
+    this.input.touchState.pinchDelta = 0;
+
+    // Present to screen
+    this.presentToScreen();
+  }
+
+  // ===========================================================================
+  // Script Overlays
+  // ===========================================================================
+
+  /**
+   * Set or clear an info overlay at a corner position.
+   * Called by script.js via the ScriptEngineAPI.
+   */
+  setOverlay(position: OverlayPosition, text: string | null): void {
+    let overlay = this.overlays.get(position);
+
+    if (text === null) {
+      // Hide overlay
+      if (overlay) {
+        overlay.classList.add('hidden');
+      }
+      return;
+    }
+
+    // Create overlay element if it doesn't exist
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = `script-overlay ${position}`;
+      this.container.appendChild(overlay);
+      this.overlays.set(position, overlay);
+    }
+
+    // Update text and show
+    overlay.textContent = text;
+    overlay.classList.remove('hidden');
   }
 
   /**
@@ -316,6 +447,11 @@ export class App {
     this.hideContextLostOverlay();
     this.errorOverlay.hide();
     this.hideMediaBanner();
+    // Clean up overlays
+    for (const overlay of this.overlays.values()) {
+      overlay.remove();
+    }
+    this.overlays.clear();
   }
 
   // ===========================================================================

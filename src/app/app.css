@@ -531,3 +531,48 @@
 .media-banner-button:hover {
   background: rgba(74, 158, 255, 1);
 }
+
+/* ===== Script Info Overlays ===== */
+.script-overlay {
+  position: absolute;
+  z-index: 500;
+  padding: 6px 10px;
+  background: var(--glass-bg);
+  color: var(--glass-text);
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 11px;
+  border-radius: var(--glass-radius-sm);
+  border: var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow-sm);
+  pointer-events: none;
+  white-space: pre;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.script-overlay.hidden {
+  display: none;
+}
+
+.script-overlay.top-left {
+  top: 12px;
+  left: 12px;
+}
+
+.script-overlay.top-right {
+  top: 12px;
+  right: 12px;
+}
+
+.script-overlay.bottom-left {
+  bottom: 12px;
+  left: 12px;
+}
+
+.script-overlay.bottom-right {
+  bottom: 12px;
+  right: 12px;
+}

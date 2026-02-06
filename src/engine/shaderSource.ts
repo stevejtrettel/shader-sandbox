@@ -106,6 +106,8 @@ export interface BuildShaderOpts {
   ubos: UBOInfo[];
   uniforms: Record<string, any>;
   namedSamplers?: Map<string, ChannelSource>;
+  /** View names for multi-view projects (enables cross-view uniforms) */
+  viewNames?: string[];
 }
 
 /**
@@ -151,6 +153,17 @@ uniform float iPinchDelta;
 uniform vec2  iPinchCenter;
 `);
 
+    // Cross-view uniforms for multi-view projects
+    if (opts.viewNames && opts.viewNames.length > 1) {
+      parts.push('// Cross-view uniforms (multi-view project)');
+      for (const viewName of opts.viewNames) {
+        parts.push(`uniform vec4  iMouse_${viewName};`);
+        parts.push(`uniform vec3  iResolution_${viewName};`);
+        parts.push(`uniform bool  iMousePressed_${viewName};`);
+      }
+      parts.push('');
+    }
+
     // Named sampler declarations
     parts.push('// Named samplers');
     for (const [name] of opts.namedSamplers) {
@@ -190,6 +203,17 @@ uniform float iPinch;               // Pinch scale factor (1.0 = no pinch)
 uniform float iPinchDelta;          // Pinch change since last frame
 uniform vec2  iPinchCenter;         // Center point of pinch gesture
 `);
+
+    // Cross-view uniforms for multi-view projects (Shadertoy mode)
+    if (opts.viewNames && opts.viewNames.length > 1) {
+      parts.push('// Cross-view uniforms (multi-view project)');
+      for (const viewName of opts.viewNames) {
+        parts.push(`uniform vec4  iMouse_${viewName};`);
+        parts.push(`uniform vec3  iResolution_${viewName};`);
+        parts.push(`uniform bool  iMousePressed_${viewName};`);
+      }
+      parts.push('');
+    }
   }
 
   // Array uniform blocks (UBOs)

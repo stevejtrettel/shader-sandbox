@@ -1,0 +1,276 @@
+/**
+ * Multi-View Controls Styles
+ *
+ * Uses same glass styling as single-view UniformsPanel for consistency.
+ */
+
+.multi-view-controls-wrapper {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* Toggle button - uses shared glass variables from app.css */
+.multi-view-controls-toggle {
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  background: var(--glass-bg);
+  border: var(--glass-border);
+  border-radius: var(--glass-radius-sm);
+  color: var(--glass-text);
+  cursor: pointer;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow-sm);
+  transition: all 0.2s ease, opacity 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.multi-view-controls-toggle:hover {
+  background: var(--glass-bg-hover);
+  transform: scale(1.05);
+}
+
+.multi-view-controls-toggle:active {
+  transform: scale(0.95);
+}
+
+.multi-view-controls-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Hidden state for toggle button when panel is open */
+.multi-view-controls-toggle.hidden {
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
+  position: absolute;
+}
+
+/* Controls panel - uses shared glass variables */
+.multi-view-controls-panel {
+  width: 175px;
+  max-height: calc(100vh - 100px);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--glass-radius);
+  border: var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transform-origin: top right;
+  transition: opacity 0.2s ease, transform 0.2s ease, max-height 0.2s ease;
+}
+
+/* Closed state - scales down to toggle button size from top-right */
+.multi-view-controls-panel.closed {
+  opacity: 0;
+  transform: scale(0.18) translateX(0);
+  transform-origin: top right;
+  pointer-events: none;
+  max-height: 0;
+  padding: 0;
+}
+
+/* Header */
+.multi-view-controls-header {
+  padding: 10px 14px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--glass-text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Close button in header */
+.multi-view-controls-close {
+  background: transparent;
+  border: none;
+  color: var(--glass-text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.multi-view-controls-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--glass-text);
+}
+
+/* Sections */
+.controls-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.controls-section + .controls-section {
+  padding-top: 0;
+}
+
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--glass-text-muted);
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+
+/* Playback controls */
+.playback-controls {
+  flex-direction: row;
+  gap: 8px;
+  padding: 12px;
+}
+
+.control-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--glass-radius-sm);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--glass-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.control-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.control-btn:active {
+  transform: scale(0.95);
+}
+
+.control-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Uniforms section */
+.uniforms-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.uniforms-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Override uniforms controls styling for compact glass panel */
+.multi-view-controls-panel .uniform-controls {
+  padding: 0;
+  gap: 12px;
+  background: transparent;
+}
+
+.multi-view-controls-panel .uniform-controls-header {
+  display: none; /* Hide the reset button header in compact mode */
+}
+
+.multi-view-controls-panel .uniform-controls-list {
+  gap: 14px;
+}
+
+.multi-view-controls-panel .uniform-control {
+  gap: 6px;
+}
+
+.multi-view-controls-panel .uniform-control-label {
+  font-size: 11px;
+  color: var(--glass-text);
+}
+
+.multi-view-controls-panel .uniform-control-value {
+  font-size: 10px;
+  padding: 1px 4px;
+  min-width: 40px;
+  color: var(--glass-text-muted);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+/* Compact slider - glass style */
+.multi-view-controls-panel .uniform-control-slider {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.multi-view-controls-panel .uniform-control-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.multi-view-controls-panel .uniform-control-slider::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.multi-view-controls-panel .uniform-control-slider::-moz-range-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.multi-view-controls-panel .uniform-control-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Compact toggle */
+.multi-view-controls-panel .uniform-control-toggle {
+  width: 34px;
+  height: 18px;
+}
+
+.multi-view-controls-panel .uniform-control-toggle-slider {
+  border-radius: 18px;
+}
+
+.multi-view-controls-panel .uniform-control-toggle-slider::before {
+  width: 12px;
+  height: 12px;
+  left: 3px;
+  bottom: 3px;
+}
+
+.multi-view-controls-panel .uniform-control-toggle input:checked + .uniform-control-toggle-slider::before {
+  transform: translateX(16px);
+}

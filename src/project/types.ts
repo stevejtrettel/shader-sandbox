@@ -387,6 +387,45 @@ export interface StandardConfig {
 export type ProjectConfig = ShadertoyConfig | StandardConfig;
 
 // =============================================================================
+// Multi-View Config (Multiple Coupled Shaders)
+// =============================================================================
+
+/**
+ * Layout modes for multi-view projects.
+ * - 'split': 2 views side-by-side (responsive: horizontal on wide, vertical on narrow)
+ * - 'quad': 4 views in 2x2 grid
+ * - 'inset': First view fullscreen, second view as minimizable overlay
+ */
+export type MultiViewLayoutMode = 'split' | 'quad' | 'inset';
+
+/**
+ * Multi-view config format.
+ * Displays multiple coupled shaders with shared time/uniforms
+ * but independent mouse/touch input per view.
+ *
+ * Example:
+ * {
+ *   "views": ["mandelbrot", "julia"],
+ *   "layout": "split"
+ * }
+ *
+ * Files: mandelbrot.glsl, julia.glsl (or mandelbrot/image.glsl for buffers)
+ */
+export interface MultiViewConfig extends Omit<StandardConfig, 'layout'> {
+  /** View names. Each corresponds to {name}.glsl or {name}/image.glsl */
+  views: string[];
+  /** Layout mode for arranging views. Default: 'split' */
+  layout?: MultiViewLayoutMode;
+}
+
+/**
+ * Check if a config is a multi-view config.
+ */
+export function isMultiViewConfig(config: ProjectConfig | MultiViewConfig): config is MultiViewConfig {
+  return 'views' in config && Array.isArray((config as any).views);
+}
+
+// =============================================================================
 // Internal Channel Representation (Normalized)
 // =============================================================================
 
@@ -551,8 +590,75 @@ export interface ShaderProject {
 }
 
 // =============================================================================
+// Multi-View Project (Multiple Coupled Shaders)
+// =============================================================================
+
+/**
+ * A single view entry in a multi-view project.
+ * Each view has its own set of passes (Image + optional buffers).
+ */
+export interface ViewEntry {
+  /** View name (used for cross-view uniform naming, e.g., iMouse_mandelbrot) */
+  name: string;
+  /** Pass definitions for this view */
+  passes: ShaderProject['passes'];
+}
+
+/**
+ * Multi-view project with multiple coupled shaders.
+ * Each view renders to its own canvas with independent mouse/touch input,
+ * but shares time, frame count, and custom uniforms.
+ *
+ * Cross-view uniforms are available in shaders:
+ * - iMouse_{viewName} - other view's mouse state
+ * - iResolution_{viewName} - other view's resolution
+ * - iMousePressed_{viewName} - other view's mouse pressed state
+ */
+export interface MultiViewProject {
+  mode: 'standard';
+  root: string;
+  meta: ShaderMeta;
+  theme: ThemeMode;
+  controls: boolean;
+  startPaused: boolean;
+  pixelRatio: number | null;
+  commonSource: string | null;
+  uniforms: UniformDefinitions;
+  textures: ShaderTexture2D[];
+  script: DemoScriptHooks | null;
+
+  /** Views in this multi-view project */
+  views: ViewEntry[];
+  /** Layout mode for arranging views */
+  viewLayout: MultiViewLayoutMode;
+}
+
+/**
+ * Type guard to check if a project is a multi-view project.
+ */
+export function isMultiViewProject(
+  project: ShaderProject | MultiViewProject
+): project is MultiViewProject {
+  return 'views' in project && Array.isArray((project as any).views);
+}
+
+/**
+ * Cross-view state passed between views for uniform binding.
+ */
+export interface CrossViewState {
+  mouse: [number, number, number, number];
+  resolution: [number, number, number];
+  mousePressed: boolean;
+}
+
+// =============================================================================
 // Demo Script Hooks
 // =============================================================================
+
+/**
+ * Overlay position for info text display.
+ */
+export type OverlayPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
 /**
  * The API surface exposed to script.js hooks.
@@ -567,6 +673,20 @@ export interface ScriptEngineAPI {
   readPixels(passName: string, x: number, y: number, width: number, height: number): Uint8Array;
   readonly width: number;
   readonly height: number;
+
+  /**
+   * Set or clear an info overlay at a position.
+   * @param position - Corner position (default: 'top-left')
+   * @param text - Text to display (null to hide)
+   * @param viewName - For multi-view: which view (optional, defaults to main view)
+   */
+  setOverlay(position: OverlayPosition, text: string | null, viewName?: string): void;
+
+  // Multi-view extensions (undefined for single-view projects)
+  /** Get cross-view state (mouse, resolution) from another view */
+  getCrossViewState?(viewName: string): CrossViewState | undefined;
+  /** List of all view names (undefined for single-view) */
+  readonly viewNames?: string[];
 }
 
 /**

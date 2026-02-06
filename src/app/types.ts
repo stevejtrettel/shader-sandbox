@@ -37,6 +37,19 @@ export interface AppOptions {
    * Used by 'ui' layout which has its own playback controls.
    */
   skipPlaybackControls?: boolean;
+
+  /**
+   * Skip creating internal animation loop.
+   * Used by AppGroup which manages a shared animation loop for all views.
+   * When true, call stepExternal() manually each frame.
+   */
+  externalAnimationLoop?: boolean;
+
+  /**
+   * View names for multi-view projects.
+   * Enables cross-view uniforms (iMouse_viewName, etc.)
+   */
+  viewNames?: string[];
 }
 
 /**

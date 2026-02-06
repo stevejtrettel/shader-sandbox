@@ -1,0 +1,16 @@
+{
+  "title": "Mandelbrot & Julia Sets",
+  "description": "Interactive exploration of the relationship between Mandelbrot and Julia sets. Click in the Mandelbrot view to set the Julia parameter.",
+  "views": ["mandelbrot", "julia"],
+  "layout": "split",
+  "uniforms": {
+    "uMaxIter": {
+      "type": "int",
+      "value": 100,
+      "min": 10,
+      "max": 500,
+      "step": 10,
+      "label": "Max Iterations"
+    }
+  }
+}

@@ -9,9 +9,15 @@ import type {
   ShaderProject,
   ProjectConfig,
   DemoScriptHooks,
+  MultiViewProject,
+  MultiViewConfig,
+  ViewEntry,
+  ShaderPass,
+  Channels,
 } from './types';
 import type { FileLoader } from './FileLoader';
 import { loadProjectFromFiles } from './loadProjectCore';
+import { isMultiViewConfig } from './types';
 
 // =============================================================================
 // Case-Insensitive File Lookup
@@ -124,10 +130,10 @@ function titleFromPath(demoPath: string): string {
 export async function loadDemo(
   demoPath: string,
   glslFiles: Record<string, () => Promise<string>>,
-  jsonFiles: Record<string, () => Promise<ProjectConfig>>,
+  jsonFiles: Record<string, () => Promise<ProjectConfig | MultiViewConfig>>,
   imageFiles: Record<string, () => Promise<string>>,
   scriptFiles?: Record<string, () => Promise<any>>,
-): Promise<ShaderProject> {
+): Promise<ShaderProject | MultiViewProject> {
   const normalizedPath = demoPath.startsWith('./') ? demoPath : `./${demoPath}`;
 
   // Pre-load config if present
@@ -135,6 +141,11 @@ export async function loadDemo(
   let config: any = undefined;
   if (configPath in jsonFiles) {
     config = await jsonFiles[configPath]();
+  }
+
+  // Check if this is a multi-view config
+  if (config && isMultiViewConfig(config)) {
+    return loadMultiViewDemo(normalizedPath, config, glslFiles, imageFiles, scriptFiles);
   }
 
   // Pre-load script hooks
@@ -161,4 +172,83 @@ export async function loadDemo(
   }
 
   return project;
+}
+
+// =============================================================================
+// Multi-View Loading
+// =============================================================================
+
+async function loadMultiViewDemo(
+  demoPath: string,
+  config: MultiViewConfig,
+  glslFiles: Record<string, () => Promise<string>>,
+  imageFiles: Record<string, () => Promise<string>>,
+  scriptFiles?: Record<string, () => Promise<any>>,
+): Promise<MultiViewProject> {
+  const loader = createBrowserFileLoader(glslFiles, imageFiles);
+  const script = await loadScript(demoPath, scriptFiles);
+
+  // Load common.glsl if present
+  let commonSource: string | null = null;
+  const commonPath = `${demoPath}/common.glsl`;
+  if (findFileCaseInsensitive(glslFiles, commonPath)) {
+    commonSource = await loader.readText(commonPath);
+  }
+
+  // Load each view's shader(s)
+  const views: ViewEntry[] = [];
+  const defaultChannels: Channels = [
+    { kind: 'none' },
+    { kind: 'none' },
+    { kind: 'none' },
+    { kind: 'none' },
+  ];
+
+  for (const viewName of config.views) {
+    // Try flat file first: {viewName}.glsl
+    const flatPath = `${demoPath}/${viewName}.glsl`;
+    const folderImagePath = `${demoPath}/${viewName}/image.glsl`;
+
+    let imageSource: string;
+
+    if (findFileCaseInsensitive(glslFiles, flatPath)) {
+      imageSource = await loader.readText(flatPath);
+    } else if (findFileCaseInsensitive(glslFiles, folderImagePath)) {
+      imageSource = await loader.readText(folderImagePath);
+    } else {
+      throw new Error(`Multi-view: No shader found for view "${viewName}". Expected ${viewName}.glsl or ${viewName}/image.glsl`);
+    }
+
+    const imagePass: ShaderPass = {
+      name: 'Image',
+      glslSource: imageSource,
+      channels: defaultChannels,
+      namedSamplers: new Map(),
+    };
+
+    views.push({
+      name: viewName,
+      passes: { Image: imagePass },
+    });
+  }
+
+  return {
+    mode: 'standard',
+    root: demoPath,
+    meta: {
+      title: config.title ?? titleFromPath(demoPath),
+      author: config.author ?? null,
+      description: config.description ?? null,
+    },
+    theme: config.theme ?? 'light',
+    controls: config.controls ?? true,
+    startPaused: config.startPaused ?? false,
+    pixelRatio: config.pixelRatio ?? null,
+    commonSource,
+    uniforms: config.uniforms ?? {},
+    textures: [],
+    script,
+    views,
+    viewLayout: config.layout ?? 'split',
+  };
 }

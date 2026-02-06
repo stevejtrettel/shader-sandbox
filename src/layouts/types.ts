@@ -2,7 +2,7 @@
  * Layout Types - Common interface for all layout modes
  */
 
-import { ShaderProject, PassName, UniformValue } from '../project/types';
+import { ShaderProject, PassName, UniformValue, MultiViewProject } from '../project/types';
 
 /**
  * Result of a recompilation attempt.
@@ -72,3 +72,36 @@ export interface LayoutOptions {
  * Available layout modes.
  */
 export type LayoutMode = 'fullscreen' | 'default' | 'split' | 'tabbed' | 'ui';
+
+// =============================================================================
+// Multi-View Layout Types
+// =============================================================================
+
+/**
+ * Options for creating a multi-view layout.
+ */
+export interface MultiViewLayoutOptions {
+  container: HTMLElement;
+  project: MultiViewProject;
+  viewNames: string[];
+}
+
+/**
+ * Interface for multi-view layouts that manage multiple canvas containers.
+ */
+export interface MultiViewLayout {
+  /**
+   * Get all canvas containers keyed by view name.
+   */
+  getCanvasContainers(): Map<string, HTMLElement>;
+
+  /**
+   * Get the wrapper element (for positioning controls).
+   */
+  getWrapperElement(): HTMLElement;
+
+  /**
+   * Clean up all DOM elements and resources.
+   */
+  dispose(): void;
+}

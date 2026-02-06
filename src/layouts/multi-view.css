@@ -1,0 +1,190 @@
+/**
+ * Multi-View Layout Styles
+ *
+ * Shared styles for split, quad, and inset multi-view layouts.
+ */
+
+/* Base multi-view container */
+.layout-multi-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--bg-primary);
+}
+
+/* Individual view canvas container */
+.multi-view-canvas {
+  position: relative;
+  background: var(--bg-canvas);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md), var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* View label overlay */
+.multi-view-label {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  text-transform: capitalize;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Info overlay (for displaying values like Julia parameter) */
+.multi-view-info {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-radius: 4px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* =============================================================================
+   Split View Layout (2 views)
+   ============================================================================= */
+
+.layout-split-view {
+  display: flex;
+  gap: 16px;
+  padding: 24px;
+}
+
+/* Horizontal split (side by side) - default for wide screens */
+.layout-split-view.split-horizontal {
+  flex-direction: row;
+}
+
+.layout-split-view.split-horizontal .multi-view-canvas {
+  flex: 1;
+  height: 100%;
+}
+
+/* Vertical split (stacked) - for narrow/tall screens */
+.layout-split-view.split-vertical {
+  flex-direction: column;
+}
+
+.layout-split-view.split-vertical .multi-view-canvas {
+  flex: 1;
+  width: 100%;
+}
+
+/* =============================================================================
+   Quad View Layout (4 views in 2x2 grid)
+   ============================================================================= */
+
+.layout-quad-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 16px;
+  padding: 24px;
+}
+
+.layout-quad-view .multi-view-canvas {
+  min-height: 0; /* Allow shrinking in grid */
+}
+
+/* =============================================================================
+   Inset View Layout (main + overlay)
+   ============================================================================= */
+
+.layout-inset-view {
+  padding: 24px;
+}
+
+.layout-inset-view .multi-view-canvas.inset-main {
+  width: 100%;
+  height: 100%;
+}
+
+.layout-inset-view .multi-view-canvas.inset-overlay {
+  position: absolute;
+  bottom: 40px;
+  right: 40px;
+  width: 25%;
+  min-width: 200px;
+  aspect-ratio: 16 / 9;
+  z-index: 10;
+  transition: all 0.2s ease;
+}
+
+/* Minimized inset */
+.layout-inset-view .multi-view-canvas.inset-overlay.minimized {
+  width: 48px;
+  height: 48px;
+  min-width: unset;
+  aspect-ratio: unset;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.layout-inset-view .multi-view-canvas.inset-overlay.minimized:hover {
+  opacity: 1;
+}
+
+/* Minimize/restore button on inset */
+.inset-minimize-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  z-index: 11;
+  transition: background 0.2s;
+}
+
+.inset-minimize-btn:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+/* =============================================================================
+   Responsive adjustments
+   ============================================================================= */
+
+@media (max-width: 600px) {
+  .layout-multi-view {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .layout-split-view {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .layout-quad-view {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .layout-inset-view .multi-view-canvas.inset-overlay {
+    bottom: 20px;
+    right: 20px;
+    min-width: 150px;
+  }
+}

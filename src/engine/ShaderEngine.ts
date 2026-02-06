@@ -101,6 +101,9 @@ export class ShaderEngine {
   // Script-uploaded textures
   private _scriptTextures: Map<string, RuntimeScriptTexture> = new Map();
 
+  // View names for multi-view projects (enables cross-view uniforms)
+  private _viewNames: string[] = [];
+
   constructor(opts: EngineOptions) {
     this.gl = opts.gl;
     this.project = opts.project;
@@ -134,7 +137,12 @@ export class ShaderEngine {
     // 6. Initialize custom uniform values and UBOs (must happen before shader compilation)
     this._uniformMgr = new UniformManager(this.gl, opts.project.uniforms);
 
-    // 6. Compile shaders + create runtime passes
+    // 7. Store view names for multi-view cross-view uniforms (must be before shader compilation)
+    if (opts.viewNames && opts.viewNames.length > 1) {
+      this._viewNames = opts.viewNames;
+    }
+
+    // 8. Compile shaders + create runtime passes
     this.initRuntimePasses();
   }
 
@@ -325,7 +333,7 @@ export class ShaderEngine {
     pinch: number;
     pinchDelta: number;
     pinchCenter: [number, number];
-  }): void {
+  }, crossViewStates?: Map<string, import('../project/types').CrossViewState>): void {
     const gl = this.gl;
 
     // Compute time/deltaTime/iFrame
@@ -365,6 +373,7 @@ export class ShaderEngine {
       iPinch: t.pinch,
       iPinchDelta: t.pinchDelta,
       iPinchCenter: t.pinchCenter,
+      crossViewStates,
     };
 
     // Set viewport for all passes
@@ -727,6 +736,34 @@ export class ShaderEngine {
         }
         return m;
       })(),
+      // Cross-view uniforms for multi-view projects
+      crossViewMouse: (() => {
+        const m = new Map<string, WebGLUniformLocation | null>();
+        if (this._viewNames.length > 1) {
+          for (const viewName of this._viewNames) {
+            m.set(viewName, gl.getUniformLocation(program, `iMouse_${viewName}`));
+          }
+        }
+        return m;
+      })(),
+      crossViewResolution: (() => {
+        const m = new Map<string, WebGLUniformLocation | null>();
+        if (this._viewNames.length > 1) {
+          for (const viewName of this._viewNames) {
+            m.set(viewName, gl.getUniformLocation(program, `iResolution_${viewName}`));
+          }
+        }
+        return m;
+      })(),
+      crossViewMousePressed: (() => {
+        const m = new Map<string, WebGLUniformLocation | null>();
+        if (this._viewNames.length > 1) {
+          for (const viewName of this._viewNames) {
+            m.set(viewName, gl.getUniformLocation(program, `iMousePressed_${viewName}`));
+          }
+        }
+        return m;
+      })(),
     };
   }
 
@@ -894,7 +931,17 @@ export class ShaderEngine {
       ubos: this._uniformMgr.ubos.map(u => ({ name: u.name, def: u.def, count: u.def.count })),
       uniforms: this.project.uniforms,
       namedSamplers,
+      viewNames: this._viewNames.length > 1 ? this._viewNames : undefined,
     });
+  }
+
+  /**
+   * Set view names for multi-view projects.
+   * This enables cross-view uniforms (iMouse_viewName, iResolution_viewName, etc.)
+   * Must be called before shader compilation.
+   */
+  setViewNames(names: string[]): void {
+    this._viewNames = names;
   }
 
   // ===========================================================================
@@ -1000,6 +1047,26 @@ export class ShaderEngine {
 
     if (uniforms.iPinchCenter) {
       gl.uniform2f(uniforms.iPinchCenter, values.iPinchCenter[0], values.iPinchCenter[1]);
+    }
+
+    // Cross-view uniforms for multi-view projects
+    if (values.crossViewStates) {
+      for (const [viewName, state] of values.crossViewStates) {
+        const mouseLoc = uniforms.crossViewMouse.get(viewName);
+        if (mouseLoc) {
+          gl.uniform4f(mouseLoc, state.mouse[0], state.mouse[1], state.mouse[2], state.mouse[3]);
+        }
+
+        const resLoc = uniforms.crossViewResolution.get(viewName);
+        if (resLoc) {
+          gl.uniform3f(resLoc, state.resolution[0], state.resolution[1], state.resolution[2]);
+        }
+
+        const pressedLoc = uniforms.crossViewMousePressed.get(viewName);
+        if (pressedLoc) {
+          gl.uniform1i(pressedLoc, state.mousePressed ? 1 : 0);
+        }
+      }
     }
   }
 

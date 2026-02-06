@@ -10,6 +10,7 @@ import type {
   PassName,
   Channels,
   ChannelSource,
+  CrossViewState,
 } from '../project/types';
 
 // =============================================================================
@@ -25,6 +26,8 @@ import type {
 export interface EngineOptions {
   gl: WebGL2RenderingContext;
   project: ShaderProject;
+  /** View names for multi-view projects (enables cross-view uniforms) */
+  viewNames?: string[];
 }
 
 // =============================================================================
@@ -69,6 +72,11 @@ export interface PassUniformLocations {
   // Named samplers (standard mode)
   namedSamplers: Map<string, WebGLUniformLocation | null>;
   namedSamplerResolutions: Map<string, WebGLUniformLocation | null>;
+
+  // Cross-view uniforms (multi-view projects)
+  crossViewMouse: Map<string, WebGLUniformLocation | null>;
+  crossViewResolution: Map<string, WebGLUniformLocation | null>;
+  crossViewMousePressed: Map<string, WebGLUniformLocation | null>;
 }
 
 // =============================================================================
@@ -186,6 +194,8 @@ export interface BuiltinUniformValues {
   iPinch: number;
   iPinchDelta: number;
   iPinchCenter: [number, number];
+  /** Cross-view state for multi-view projects (viewName -> state) */
+  crossViewStates?: Map<string, CrossViewState>;
 }
 
 // =============================================================================
