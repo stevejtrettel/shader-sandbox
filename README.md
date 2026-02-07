@@ -353,18 +353,57 @@ The export button generates a standalone HTML file containing your shader. It in
 shader build my-shader
 ```
 
-Outputs a single HTML file in `dist/` that can be hosted anywhere.
+Outputs `dist/my-shader/main.js` (ES module) and `dist/my-shader/index.html` (standalone page).
 
-## Embedding as a Library
+The `main.js` module exports `mountDemo()` which can be used programmatically:
+
+```html
+<div id="shader" style="width:100%;height:400px"></div>
+<script type="module">
+  import { mountDemo } from './main.js';
+  mountDemo(document.getElementById('shader'));
+</script>
+```
+
+### `<live-app>` Custom Element
+
+For embedding on websites, include the `live-app.js` script and use the `<live-app>` element:
+
+```html
+<script type="module" src="/js/live-app.js"></script>
+<live-app src="/shaders/my-shader/main.js" style="width:100%;height:400px;display:block;"></live-app>
+```
+
+Attributes:
+- `src` — path to the built shader module (`main.js`)
+- `styled` — set to `"true"` to enable pane decoration (default: `false`)
+- `fullpage` — fill the entire viewport
+
+### Decoration Control
+
+Built shaders include decoration (rounded corners, box shadows) by default. Control this via the `styled` option:
+
+```js
+// With decoration (default)
+mountDemo(el);
+
+// Without decoration (flat, for custom styling)
+mountDemo(el, { styled: false });
+```
+
+Decoration is controlled via CSS custom properties (`--pane-radius`, `--pane-shadow`) which you can override on the container element.
+
+## Using as a Library
 
 The package exports its core classes for use in custom applications:
 
 ```typescript
-import { App, createLayout, loadDemo } from '@stevejtrettel/shader-sandbox';
+import { mount, App, createLayout, loadDemo } from '@stevejtrettel/shader-sandbox';
 ```
 
 | Export | Description |
 |--------|-------------|
+| `mount(el, options)` | Core API — mount a project into a DOM element |
 | `App` | Main application — canvas, engine, and animation loop |
 | `createLayout(mode, options)` | Layout factory |
 | `applyTheme(mode)` | Apply light, dark, or system theme |
@@ -373,36 +412,18 @@ import { App, createLayout, loadDemo } from '@stevejtrettel/shader-sandbox';
 ### Example
 
 ```typescript
-import { App, createLayout } from '@stevejtrettel/shader-sandbox';
+import { mount } from '@stevejtrettel/shader-sandbox';
 
 const project = /* your ShaderProject */;
-const layout = createLayout(project.layout, {
-  container: document.getElementById('shader-container'),
-  project,
-});
 
-const app = new App({
-  container: layout.getCanvasContainer(),
+const handle = await mount(document.getElementById('shader-container'), {
   project,
+  styled: true,      // enable pane decoration (default)
+  pixelRatio: 2,     // optional
 });
-
-if (!app.hasErrors()) app.start();
 
 // Clean up
-app.dispose();
-```
-
-### Embed Entry Point
-
-For build-time embedding of a specific shader:
-
-```typescript
-import { embed } from '@stevejtrettel/shader-sandbox/embed';
-
-const { app, destroy } = await embed({
-  container: '#my-container',
-  pixelRatio: window.devicePixelRatio,
-});
+handle.destroy();
 ```
 
 ## Shadertoy Mode

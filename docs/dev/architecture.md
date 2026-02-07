@@ -111,8 +111,8 @@ Each layer has a specific responsibility and communicates through well-defined i
 **Responsibility**: Different display modes for the shader viewer.
 
 **Key Files**:
-- `FullscreenLayout.ts` - Canvas fills screen
-- `DefaultLayout.ts` - Canvas centered with max-width
+- `FullscreenLayout.ts` - Canvas fills container
+- `DefaultLayout.ts` - Single pane with decoration
 - `SplitLayout.ts` - Canvas + code viewer side-by-side
 - `index.ts` - Factory function
 - `types.ts` - BaseLayout interface
@@ -121,19 +121,24 @@ Each layer has a specific responsibility and communicates through well-defined i
 **Output**: Layout-specific DOM structure
 
 **Key Responsibilities**:
-- Create DOM structure for layout
+- Create DOM structure for layout (arrangement only)
 - Import and manage layout-specific CSS
 - Provide canvas container to App
 - Handle syntax highlighting (SplitLayout only)
 
-**Design Decision**: Layouts are **modular and swappable** via factory pattern. Each layout imports its own CSS, so Vite bundles only what's needed.
+**Design Decision**: Layouts separate three concerns:
+- **Arrangement** (flex/grid) — handled by layout CSS
+- **Decoration** (border-radius, box-shadow) — controlled via CSS custom properties (`--pane-radius`, `--pane-shadow`), toggleable via `.unstyled` class
+- **Positioning** (centering, padding) — caller's responsibility (dev adds padding via `.dev-padded`)
+
+Layouts fill their container 100% and arrange children. Single-pane layouts apply decoration to the container itself. Multi-pane layouts leave the outer container invisible and apply decoration to each child pane.
 
 ## Data Flow
 
 ### Startup Sequence
 
 ```
-1. main.ts
+1. Entry point (main.ts / embed.ts / <live-app>)
    ↓
 2. loadDemoProject() via generatedLoader
    ↓
@@ -141,19 +146,25 @@ Each layer has a specific responsibility and communicates through well-defined i
    ↓
 4. Returns ShaderProject
    ↓
-5. createLayout(mode, { container, project })
+5. mount(el, { project }) — core API
    ↓
-6. Layout creates DOM structure
+6. Toggle .unstyled class if styled=false
    ↓
-7. new App({ container: layout.getCanvasContainer(), project })
+7. createLayout(mode, { container, project })
    ↓
-8. App creates canvas, WebGL context
+8. Layout creates DOM structure
    ↓
-9. new ShaderEngine({ gl, project })
+9. Wire up handlers (recompile, uniform, UILayout)
    ↓
-10. Engine compiles shaders, creates resources
+10. new App({ container: layout.getCanvasContainer(), project })
    ↓
-11. app.start() begins animation loop
+11. App creates canvas, WebGL context
+   ↓
+12. new ShaderEngine({ gl, project })
+   ↓
+13. Engine compiles shaders, creates resources
+   ↓
+14. app.start() begins animation loop
 ```
 
 ### Per-Frame Execution

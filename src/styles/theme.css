@@ -87,6 +87,10 @@
 
   /* Image viewer */
   --image-viewer-bg: #f5f5f5;
+
+  /* Pane decoration (overridable by consumers via CSS custom properties) */
+  --pane-radius: 8px;
+  --pane-shadow: var(--shadow-lg), var(--shadow-sm);
 }
 
 /* ===== Dark Theme ===== */
@@ -170,6 +174,10 @@
 
   /* Image viewer */
   --image-viewer-bg: #2a2a2a;
+
+  /* Pane decoration */
+  --pane-radius: 8px;
+  --pane-shadow: var(--shadow-lg), var(--shadow-sm);
 }
 
 /* ===== System Theme (follows OS preference) ===== */
@@ -229,6 +237,10 @@
   --recompile-bg-hover: #d8d8d8;
   --recompile-bg-active: #c8c8c8;
   --image-viewer-bg: #f5f5f5;
+
+  /* Pane decoration */
+  --pane-radius: 8px;
+  --pane-shadow: var(--shadow-lg), var(--shadow-sm);
 }
 
 /* Override with dark theme when system prefers dark */
@@ -288,5 +300,15 @@
     --recompile-bg-hover: #4a4a4a;
     --recompile-bg-active: #5a5a5a;
     --image-viewer-bg: #2a2a2a;
+
+    /* Pane decoration */
+    --pane-radius: 8px;
+    --pane-shadow: var(--shadow-lg), var(--shadow-sm);
   }
+}
+
+/* Unstyled mode - zeros out pane decoration */
+.unstyled {
+  --pane-radius: 0 !important;
+  --pane-shadow: none !important;
 }

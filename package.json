@@ -39,10 +39,6 @@
     "dev": "vite",
     "dev:demo": "node scripts/dev-demo.cjs",
     "build": "tsc && vite build",
-    "build:demo": "node scripts/build-demo.cjs",
-    "build:embed": "node scripts/build-embed.cjs",
-    "build:embed:folder": "node scripts/build-embed-folder.cjs",
-    "build:embed:screenshots": "node scripts/build-folder-screenshots.cjs",
     "build:lib": "node scripts/build-lib.cjs",
     "prepublishOnly": "npm run build:lib",
     "preview": "vite preview"

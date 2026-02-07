@@ -22,22 +22,39 @@ shadertoys/
 
 ```
 src/
-├── main.ts            # Dev/demo entry point
+├── main.ts            # Dev server entry point (thin wrapper around mount())
+├── mount.ts           # Core mount() API — all handler wiring logic
 ├── index.ts           # Library entry point (npm package exports)
-├── embed.ts           # Embeddable entry point
+├── embed.ts           # Build entry point (exports mountDemo() for compiled shaders)
+├── live-app.ts        # <live-app> custom element for website embedding
 ├── vite-env.d.ts      # Vite type declarations
 └── styles/
-    ├── base.css       # Global CSS resets
-    ├── embed.css      # Embed-specific styles
-    └── theme.css      # CSS variables for theming
+    ├── base.css       # Global CSS resets (dev only)
+    ├── dev.css        # Dev padding for non-fullscreen layouts
+    └── theme.css      # CSS variables for theming + pane decoration
 ```
 
+**`mount.ts`**
+- Core `mount(el, options)` API
+- Creates layout, initializes App/AppGroup
+- Wires up all handlers (recompile, uniform, UILayout callbacks)
+- Supports both single-view and multi-view projects
+- Toggles `.unstyled` class for decoration control via CSS custom properties
+
 **`main.ts`**
+- Thin dev wrapper (~60 lines) that calls `mount()`
 - Loads demo project via generated loader
-- Creates layout based on project config
-- Initializes App
-- Starts animation loop
-- Handles initialization errors
+- Adds dev padding for non-fullscreen layouts
+- Exposes app/appGroup on window for debugging
+
+**`embed.ts`**
+- Build entry point for compiled shaders (Vite library mode)
+- Exports `mountDemo(el, options?)` — auto-loads baked-in project, calls `mount()`
+- Exports `embed(options)` — backward-compatible wrapper (deprecated)
+
+**`live-app.ts`**
+- `<live-app>` custom element for embedding on websites
+- Attributes: `src` (module path), `styled` (decoration), `fullpage` (fill viewport)
 
 ### Project Layer (`src/project/`)
 
@@ -249,7 +266,7 @@ src/layouts/
 - Imports `fullscreen.css`
 
 **`DefaultLayout.ts`**
-- Canvas centered with max-width and shadow
+- Canvas fills container with decoration via CSS custom properties
 - Imports `default.css`
 
 **`SplitLayout.ts`**
@@ -297,20 +314,26 @@ src/editor/
 
 ```
 src/styles/
-├── base.css           # Global resets and defaults
-├── embed.css          # Embed-specific styles
-└── theme.css          # CSS variables for light/dark/system themes
+├── base.css           # Global resets and defaults (dev only)
+├── dev.css            # Dev padding for non-fullscreen layouts
+└── theme.css          # CSS variables for light/dark/system themes + pane decoration
 ```
 
 **`base.css`**
 - CSS reset (margin, padding, box-sizing)
 - html/body 100% height
 - Disable overflow on body
+- Only imported by dev entry points (main.ts, index.ts), not by mount.ts
+
+**`dev.css`**
+- `.dev-padded` class adding 48px padding for non-fullscreen layouts during development
 
 **`theme.css`**
 - CSS custom properties for theming
 - Light and dark mode variables
 - System preference media query support
+- Pane decoration variables: `--pane-radius`, `--pane-shadow`
+- `.unstyled` class to disable decoration (sets variables to 0/none)
 
 ## Shaders (`shaders/`)
 
@@ -341,15 +364,11 @@ shaders/my-shader/
 
 Build helper scripts (Node.js):
 
-- `dev-demo.cjs` - Generate loader for dev server
-- `build-demo.cjs` - Generate loader for production build
-- `build-embed.cjs` - Build embeddable script output
-- `build-embed-folder.cjs` - Build embeddable from a folder
-- `build-folder-screenshots.cjs` - Generate screenshots for demos
+- `dev-demo.cjs` - Generate loader and start Vite dev server for a demo
 - `build-lib.cjs` - Build library distribution (npm package)
 - `new-demo.cjs` - Create new demo from template
 
-These scripts create `src/project/generatedLoader.ts` which bundles the demo files.
+`dev-demo.cjs` generates `src/project/generatedLoader.ts` which bundles demo files via `import.meta.glob`.
 
 ## Documentation (`docs/`)
 

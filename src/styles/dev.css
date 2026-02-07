@@ -1,0 +1,9 @@
+/**
+ * Dev-only styles — padding for non-fullscreen layouts during development.
+ * Not imported by mount.ts or embed builds.
+ */
+
+.dev-padded {
+  padding: 48px;
+  box-sizing: border-box;
+}

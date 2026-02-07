@@ -7,6 +7,10 @@
 
 import './styles/base.css';
 
+// Core API
+export { mount } from './mount';
+export type { MountOptions, MountHandle } from './mount';
+
 // Single-view components
 export { App } from './app/App';
 export { createLayout, applyTheme } from './layouts';

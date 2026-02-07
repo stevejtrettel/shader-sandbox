@@ -9,17 +9,15 @@
   height: 100%;
   display: flex;
   gap: 24px;
-  padding: 60px 80px;
 }
 
 /* Canvas container - takes remaining space */
 .layout-ui .ui-canvas-container {
   position: relative;
   flex: 1;
-  max-width: 1200px;
   background: var(--bg-canvas);
-  border-radius: 8px;
-  box-shadow: var(--shadow-md), var(--shadow-sm);
+  border-radius: var(--pane-radius);
+  box-shadow: var(--pane-shadow);
   overflow: hidden;
 }
 
@@ -30,8 +28,8 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
-  border-radius: 8px;
-  box-shadow: var(--shadow-md), var(--shadow-sm);
+  border-radius: var(--pane-radius);
+  box-shadow: var(--pane-shadow);
   overflow: hidden;
 }
 
@@ -249,36 +247,15 @@
 
 /* ===== Responsive adjustments ===== */
 
-@media (max-width: 1200px) {
-  .layout-ui {
-    padding: 40px 60px;
-  }
-}
-
-@media (max-width: 1000px) {
-  .layout-ui {
-    padding: 30px 40px;
-  }
-}
-
-@media (max-width: 800px) {
-  .layout-ui {
-    padding: 24px 30px;
-    gap: 16px;
-  }
-}
-
 /* Stack vertically on small screens */
 @media (max-width: 600px) {
   .layout-ui {
     flex-direction: column;
-    padding: 16px;
     gap: 16px;
   }
 
   .layout-ui .ui-canvas-container {
     flex: none;
-    /* Maintain aspect ratio when stacked */
     aspect-ratio: 16 / 9;
   }
 

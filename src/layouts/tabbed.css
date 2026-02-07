@@ -8,21 +8,16 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px;
   box-sizing: border-box;
 }
 
 .tabbed-wrapper {
   display: flex;
   flex-direction: column;
-  width: 800px;
-  max-width: 100%;
-  height: 650px; /* 600px content + ~50px tabs */
-  max-height: 100%;
-  border-radius: 8px;
-  box-shadow: var(--shadow-lg), var(--shadow-sm);
+  width: 100%;
+  height: 100%;
+  border-radius: var(--pane-radius);
+  box-shadow: var(--pane-shadow);
   overflow: hidden;
 }
 
@@ -203,23 +198,7 @@
 .tabbed-code-viewer .token.punctuation { color: var(--syntax-punctuation); }
 
 /* ===== Responsive ===== */
-@media (max-width: 1200px) {
-  .layout-tabbed {
-    padding: 40px 60px;
-  }
-}
-
-@media (max-width: 900px) {
-  .layout-tabbed {
-    padding: 30px 40px;
-  }
-}
-
 @media (max-width: 600px) {
-  .layout-tabbed {
-    padding: 20px;
-  }
-
   .tabbed-tab-button {
     padding: 8px 12px;
     font-size: 12px;

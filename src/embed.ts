@@ -1,29 +1,50 @@
 /**
- * Embeddable Entry Point
- * Supports both single-view and multi-view shader projects.
+ * Build Entry Point
+ *
+ * This is the entry point for compiled shader modules.
+ * Exports:
+ *   - mountDemo(el, options?) — simple consumer API (auto-loads baked-in project)
+ *   - embed(options)          — backward-compatible wrapper
+ *   - DEMO_NAME               — name of the baked-in demo
  */
 
-import './styles/embed.css';
-
-import { App } from './app/App';
-import { AppGroup } from './app/AppGroup';
-import { MultiViewControls } from './app/MultiViewControls';
-import { createLayout, createMultiViewLayout } from './layouts';
+import { mount, MountHandle } from './mount';
 import { loadDemoProject, DEMO_NAME } from './project/generatedLoader';
-import { isMultiViewProject, MultiViewProject } from './project/types';
+
+// ---------- New API ----------
+
+export interface MountDemoOptions {
+  styled?: boolean;       // default true
+  pixelRatio?: number;    // default devicePixelRatio
+}
+
+/**
+ * Mount the baked-in shader project into a DOM element.
+ * This is the primary consumer-facing API for build output.
+ */
+export async function mountDemo(
+  el: HTMLElement,
+  options?: MountDemoOptions,
+): Promise<MountHandle> {
+  const project = await loadDemoProject();
+  return mount(el, {
+    project,
+    styled: options?.styled ?? true,
+    pixelRatio: options?.pixelRatio,
+  });
+}
+
+// ---------- Backward-compatible API ----------
 
 export interface EmbedOptions {
   container: HTMLElement | string;
   pixelRatio?: number;
 }
 
-export interface EmbedResult {
-  app?: App;
-  appGroup?: AppGroup;
-  destroy: () => void;
-}
-
-export async function embed(options: EmbedOptions): Promise<EmbedResult> {
+/**
+ * @deprecated Use mountDemo() instead.
+ */
+export async function embed(options: EmbedOptions): Promise<MountHandle> {
   const container = typeof options.container === 'string'
     ? document.querySelector(options.container)
     : options.container;
@@ -33,73 +54,13 @@ export async function embed(options: EmbedOptions): Promise<EmbedResult> {
   }
 
   const project = await loadDemoProject();
-
-  // Handle multi-view projects
-  if (isMultiViewProject(project)) {
-    return embedMultiView(container, project, options);
-  }
-
-  // Single-view project
-  const layout = createLayout(project.layout, {
-    container,
+  return mount(container, {
     project,
+    styled: false,
+    pixelRatio: options.pixelRatio,
   });
-
-  const app = new App({
-    container: layout.getCanvasContainer(),
-    project,
-    pixelRatio: options.pixelRatio ?? window.devicePixelRatio,
-  });
-
-  if (!app.hasErrors()) {
-    app.start();
-  }
-
-  return {
-    app,
-    destroy: () => {
-      app.dispose();
-    },
-  };
 }
 
-async function embedMultiView(
-  container: HTMLElement,
-  project: MultiViewProject,
-  options: EmbedOptions
-): Promise<EmbedResult> {
-  const viewNames = project.views.map(v => v.name);
-
-  const layout = createMultiViewLayout(project.viewLayout, {
-    container,
-    project,
-    viewNames,
-  });
-
-  const appGroup = new AppGroup({
-    containers: layout.getCanvasContainers(),
-    project,
-    pixelRatio: options.pixelRatio ?? window.devicePixelRatio,
-  });
-
-  const controls = new MultiViewControls({
-    wrapper: layout.getWrapperElement(),
-    appGroup,
-    uniforms: project.uniforms,
-  });
-
-  if (!appGroup.hasErrors()) {
-    appGroup.start();
-  }
-
-  return {
-    appGroup,
-    destroy: () => {
-      controls.dispose();
-      appGroup.dispose();
-      layout.dispose();
-    },
-  };
-}
-
+// Re-exports
 export { DEMO_NAME };
+export type { MountHandle } from './mount';
