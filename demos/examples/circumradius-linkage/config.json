@@ -1,0 +1,21 @@
+{
+  "title": "Circumradius Linkage Surface",
+  "description": "Interactive exploration of the circumradius linkage implicit surface. Click in the Parameters view to set L1 and L2.",
+  "views": ["params", "surface"],
+  "layout": "split",
+  "uniforms": {
+    "uCubeView": {
+      "type": "bool",
+      "value": true,
+      "label": "Cube View"
+    },
+    "uMaxSteps": {
+      "type": "int",
+      "value": 400,
+      "min": 100,
+      "max": 800,
+      "step": 50,
+      "label": "Ray March Steps"
+    }
+  }
+}
