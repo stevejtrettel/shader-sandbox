@@ -3,12 +3,14 @@
 /**
  * Shader Sandbox CLI
  * Commands:
- *   shader create <name>       - Create a new shader project
- *   shader create .            - Initialize shaders in current directory
- *   shader new <name>          - Create a new shader
- *   shader dev <shader-name>   - Start development server
- *   shader build <shader-name> - Build for production
- *   shader list                - List available shaders
+ *   shader create <name>              - Create a new shader project
+ *   shader create .                   - Initialize shaders in current directory
+ *   shader new <name> [template]      - Create a new shader from template
+ *   shader dev <shader-name>          - Start development server
+ *   shader build <shader-name>        - Build for production
+ *   shader list                       - List available shaders
+ *   shader build-gallery              - Build a static gallery index page
+ *   shader render <name> [options]    - Render frames/video headlessly
  */
 
 import { spawn } from 'child_process';
@@ -23,24 +25,36 @@ const packageRoot = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 const command = args[0];
 
+const AVAILABLE_TEMPLATES = ['simple', 'shadertoy', 'buffers', 'scripted'];
+const DEFAULT_TEMPLATE = 'simple';
+
 function printUsage() {
   console.log(`
 Shader Sandbox - Local GLSL shader development
 
 Usage:
-  shader create <name>       Create a new shader project
-  shader create .            Initialize in current directory
-  shader new <name>          Create a new shader
-  shader dev <shader-name>   Start development server
-  shader build <shader-name> Build for production
-  shader list                List available shaders
+  shader create <name>              Create a new shader project
+  shader create .                   Initialize in current directory
+  shader new <name> [template]      Create a new shader from template
+  shader dev <shader-name>          Start development server
+  shader build <shader-name>        Build for production
+  shader list                       List available shaders
+  shader build-gallery              Build a static gallery index page
+  shader render <name> [options]    Render frames/video (headless)
+
+Templates for 'shader new':
+  simple      Minimal starter (default)
+  shadertoy   Shadertoy-compatible mode
+  buffers     Multi-pass with trail buffer
+  scripted    JS-driven particle system (script.js)
 
 Examples:
-  shader create my-shaders   Create new project folder
-  shader create .            Initialize in existing folder
-  shader dev simple          Run a shader
-  shader new my-shader       Create shaders/my-shader/
-  shader list                Show all shaders
+  shader create my-shaders          Create new project folder
+  shader create .                   Initialize in existing folder
+  shader dev simple                 Run a shader
+  shader new my-shader              Create with default template
+  shader new my-shader scripted     Create with scripted template
+  shader list                       Show all shaders
 `);
 }
 
@@ -228,7 +242,7 @@ Next steps:
   });
 }
 
-function createNewShader(name) {
+function createNewShader(name, template) {
   const cwd = process.cwd();
   const shadersDir = path.join(cwd, 'shaders');
 
@@ -246,6 +260,19 @@ function createNewShader(name) {
     process.exit(1);
   }
 
+  // Validate template
+  const templateName = template || DEFAULT_TEMPLATE;
+  if (!AVAILABLE_TEMPLATES.includes(templateName)) {
+    console.error(`Error: Unknown template "${templateName}"`);
+    console.error('');
+    console.error('Available templates:');
+    console.error('  simple      Minimal starter (default)');
+    console.error('  shadertoy   Shadertoy-compatible mode');
+    console.error('  buffers     Multi-pass with trail buffer');
+    console.error('  scripted    JS-driven particle system (script.js)');
+    process.exit(1);
+  }
+
   const shaderDir = path.join(shadersDir, name);
 
   // Check if already exists
@@ -254,39 +281,34 @@ function createNewShader(name) {
     process.exit(1);
   }
 
-  // Create directory
-  fs.mkdirSync(shaderDir, { recursive: true });
+  // Copy template files from package's templates/shaders/{template}/
+  const templateDir = path.join(packageRoot, 'templates', 'shaders', templateName);
+  if (!fs.existsSync(templateDir)) {
+    console.error(`Error: Template directory not found: ${templateDir}`);
+    process.exit(1);
+  }
 
-  // Create image.glsl with starter template
-  const imageGlsl = `void mainImage(out vec4 fragColor, in vec2 fragCoord)
-{
-    // Normalized pixel coordinates (0 to 1)
-    vec2 uv = fragCoord / iResolution.xy;
+  copyDir(templateDir, shaderDir);
 
-    // Time varying pixel color
-    vec3 col = 0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0, 2, 4));
-
-    // Output to screen
-    fragColor = vec4(col, 1.0);
-}
-`;
-
-  fs.writeFileSync(path.join(shaderDir, 'image.glsl'), imageGlsl);
-
-  // Create config.json
-  const config = {
-    layout: 'default',
-    controls: true
-  };
-
-  fs.writeFileSync(path.join(shaderDir, 'config.json'), JSON.stringify(config, null, 2) + '\n');
+  // List created files
+  const createdFiles = [];
+  function listFiles(dir, prefix) {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        listFiles(path.join(dir, entry.name), `${prefix}${entry.name}/`);
+      } else {
+        createdFiles.push(`${prefix}${entry.name}`);
+      }
+    }
+  }
+  listFiles(shaderDir, `shaders/${name}/`);
 
   console.log(`
-✓ Created shader "${name}"
+✓ Created shader "${name}" from "${templateName}" template
 
 Files:
-  shaders/${name}/image.glsl     Main shader
-  shaders/${name}/config.json    Configuration
+${createdFiles.map(f => `  ${f}`).join('\n')}
 
 Run it:
   npx shader dev ${name}
@@ -348,10 +370,13 @@ switch (command) {
     const name = args[1];
     if (!name) {
       console.error('Error: Specify a shader name');
-      console.error('  npx shader new <name>');
+      console.error('  npx shader new <name> [template]');
+      console.error('');
+      console.error('Available templates:');
+      AVAILABLE_TEMPLATES.forEach(t => console.error(`  ${t}${t === DEFAULT_TEMPLATE ? ' (default)' : ''}`));
       process.exit(1);
     }
-    createNewShader(name);
+    createNewShader(name, args[2]);
     break;
   }
 
@@ -378,14 +403,10 @@ switch (command) {
         process.exit(1);
       }
 
-      console.error('Error: Specify which shader to run');
-      console.error('');
-      console.error('Available shaders:');
-      shaders.forEach(s => console.error(`  ${s}`));
-      console.error('');
-      console.error('Usage:');
-      console.error(`  npx shader dev ${shaders[0]}`);
-      process.exit(1);
+      // No shader specified — show gallery
+      console.log('Starting gallery...');
+      runVite([], '__gallery__');
+      break;
     }
 
     const shaderPath = path.join(cwd, 'shaders', shaderName);
@@ -468,6 +489,252 @@ switch (command) {
 
     console.log(`Building "${shaderName}"...`);
     runVite(['build'], shaderName);
+    break;
+  }
+
+  case 'build-gallery': {
+    const cwd = process.cwd();
+    const shaders = getShaderList(cwd);
+
+    if (shaders === null || shaders.length === 0) {
+      console.error('Error: No shaders found to build gallery');
+      process.exit(1);
+    }
+
+    // Read config.json for each shader to get title/description
+    const cards = shaders.map(name => {
+      const configPath = path.join(cwd, 'shaders', name, 'config.json');
+      let title = name;
+      let description = '';
+      if (fs.existsSync(configPath)) {
+        try {
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (config.meta?.title) title = config.meta.title;
+          if (config.meta?.description) description = config.meta.description;
+        } catch {}
+      }
+      return { name, title, description };
+    });
+
+    const distDir = path.join(cwd, 'dist');
+    fs.mkdirSync(distDir, { recursive: true });
+
+    const galleryHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shader Gallery</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 60px 40px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 600;
+      margin-bottom: 40px;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .card {
+      background: rgba(30, 30, 40, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 24px;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      backdrop-filter: blur(12px);
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(100, 140, 255, 0.3);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .card-name {
+      font-size: 12px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      color: rgba(255, 255, 255, 0.4);
+      margin-bottom: 8px;
+    }
+    .card-desc {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.6);
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <h1>Shader Gallery</h1>
+  <div class="gallery">
+${cards.map(c => `    <a class="card" href="${c.name}/index.html">
+      <div class="card-title">${c.title}</div>
+      ${c.title !== c.name ? `<div class="card-name">${c.name}</div>` : ''}
+      ${c.description ? `<div class="card-desc">${c.description}</div>` : ''}
+    </a>`).join('\n')}
+  </div>
+</body>
+</html>`;
+
+    fs.writeFileSync(path.join(distDir, 'index.html'), galleryHTML);
+    console.log(`✓ Gallery built: dist/index.html (${shaders.length} shaders)`);
+    break;
+  }
+
+  case 'render': {
+    const shaderName = args[1];
+    const cwd = process.cwd();
+
+    if (!shaderName) {
+      console.error('Error: Specify which shader to render');
+      console.error('  npx shader render <shader-name> [options]');
+      console.error('');
+      console.error('Options:');
+      console.error('  --width <n>      Output width (default: 1920)');
+      console.error('  --height <n>     Output height (default: 1080)');
+      console.error('  --fps <n>        Frames per second (default: 60)');
+      console.error('  --duration <n>   Duration in seconds (default: 10)');
+      console.error('  --format <type>  frames or video (default: video)');
+      process.exit(1);
+    }
+
+    const shaderPath = path.join(cwd, 'shaders', shaderName);
+    if (!fs.existsSync(shaderPath)) {
+      console.error(`Error: Shader "${shaderName}" not found`);
+      process.exit(1);
+    }
+
+    // Parse options
+    const renderOpts = {
+      width: 1920,
+      height: 1080,
+      fps: 60,
+      duration: 10,
+      format: 'video',
+    };
+
+    for (let i = 2; i < args.length; i++) {
+      const arg = args[i];
+      const next = args[i + 1];
+      if (arg === '--width' && next) { renderOpts.width = parseInt(next); i++; }
+      else if (arg === '--height' && next) { renderOpts.height = parseInt(next); i++; }
+      else if (arg === '--fps' && next) { renderOpts.fps = parseInt(next); i++; }
+      else if (arg === '--duration' && next) { renderOpts.duration = parseFloat(next); i++; }
+      else if (arg === '--format' && next) { renderOpts.format = next; i++; }
+    }
+
+    console.log(`Rendering "${shaderName}" at ${renderOpts.width}x${renderOpts.height}, ${renderOpts.fps}fps, ${renderOpts.duration}s, format: ${renderOpts.format}...`);
+    console.log('Opening browser for headless render...');
+
+    // Set render options as env vars and run dev server
+    const renderEnv = {
+      ...process.env,
+      SHADER_NAME: shaderName,
+      SHADER_RENDER: JSON.stringify(renderOpts),
+    };
+
+    const viteBin = path.join(cwd, 'node_modules', '.bin', 'vite');
+    if (!fs.existsSync(viteBin)) {
+      console.error('Error: vite not found. Run "npm install" first');
+      process.exit(1);
+    }
+
+    // Start vite dev server, then open browser with puppeteer
+    const viteChild = spawn(viteBin, [], {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: process.platform === 'win32',
+      env: renderEnv,
+    });
+
+    let serverUrl = '';
+    viteChild.stdout.on('data', async (data) => {
+      const text = data.toString();
+      const match = text.match(/Local:\s+(https?:\/\/[^\s]+)/);
+      if (match && !serverUrl) {
+        serverUrl = match[1];
+        console.log(`Dev server at ${serverUrl}`);
+
+        try {
+          const puppeteer = await import('puppeteer-core');
+          // Try common Chrome paths
+          const chromePaths = process.platform === 'darwin'
+            ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+            : process.platform === 'win32'
+              ? ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe']
+              : ['/usr/bin/google-chrome', '/usr/bin/chromium-browser'];
+
+          let execPath = '';
+          for (const p of chromePaths) {
+            if (fs.existsSync(p)) { execPath = p; break; }
+          }
+
+          if (!execPath) {
+            console.error('Error: Chrome not found. Install Google Chrome for headless rendering.');
+            viteChild.kill();
+            process.exit(1);
+          }
+
+          const browser = await puppeteer.default.launch({
+            headless: true,
+            executablePath: execPath,
+            args: ['--no-sandbox', `--window-size=${renderOpts.width},${renderOpts.height}`],
+          });
+
+          const page = await browser.newPage();
+          await page.setViewport({ width: renderOpts.width, height: renderOpts.height });
+
+          // Navigate to shader with render params
+          const renderUrl = `${serverUrl}?render=${encodeURIComponent(JSON.stringify(renderOpts))}`;
+          await page.goto(renderUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+
+          // Wait for render to complete (page sets window.__renderComplete)
+          await page.waitForFunction('window.__renderComplete === true', { timeout: renderOpts.duration * 2000 + 60000 });
+
+          console.log('Render complete!');
+          await browser.close();
+        } catch (e) {
+          console.error('Render error:', e.message);
+        } finally {
+          viteChild.kill();
+          process.exit(0);
+        }
+      }
+    });
+
+    viteChild.stderr.on('data', (data) => {
+      // Suppress normal vite output, show errors
+      const text = data.toString();
+      if (text.includes('error') || text.includes('Error')) {
+        process.stderr.write(data);
+      }
+    });
+
+    viteChild.on('close', (code) => {
+      if (code !== 0 && !serverUrl) {
+        console.error('Dev server failed to start');
+        process.exit(code);
+      }
+    });
     break;
   }
 

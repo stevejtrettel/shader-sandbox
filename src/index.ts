@@ -10,6 +10,7 @@ import './styles/base.css';
 // Single-view components
 export { App } from './app/App';
 export { createLayout, applyTheme } from './layouts';
+export { UILayout } from './layouts';
 export { loadDemo } from './project/loaderHelper';
 
 // Multi-view components
@@ -26,6 +27,7 @@ export type {
   DemoScriptHooks,
   ScriptEngineAPI,
   ArrayUniformDefinition,
+  UniformValue,
   // Multi-view types
   MultiViewProject,
   MultiViewConfig,

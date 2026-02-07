@@ -11,6 +11,7 @@ export interface PlaybackCallbacks {
   onScreenshot: () => void;
   onToggleRecording: () => void;
   onExportHTML: () => void;
+  onRender: () => void;
 }
 
 export class PlaybackControls {
@@ -97,7 +98,18 @@ export class PlaybackControls {
     `;
     exportButton.addEventListener('click', () => callbacks.onExportHTML());
 
-    // Menu button clone for inside grid (6th cell)
+    // Render button
+    const renderButton = document.createElement('button');
+    renderButton.className = 'control-button';
+    renderButton.title = 'Render';
+    renderButton.innerHTML = `
+      <svg viewBox="0 0 16 16">
+        <path d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h12v2H2v-2z"/>
+      </svg>
+    `;
+    renderButton.addEventListener('click', () => callbacks.onRender());
+
+    // Menu button clone for inside grid (8th cell)
     const menuButtonInGrid = document.createElement('button');
     menuButtonInGrid.className = 'control-button';
     menuButtonInGrid.title = 'Close';
@@ -106,14 +118,18 @@ export class PlaybackControls {
     menuButtonInGrid.style.fontWeight = '300';
     menuButtonInGrid.addEventListener('click', () => this.toggleMenu());
 
-    // Add buttons to grid (positioned in 2x3 layout)
-    // Row 1: Play/Pause, Reset, Export
-    // Row 2: Screenshot, Record, Menu (close)
+    // Add buttons to grid (positioned in 2x4 layout)
+    // Row 1: Play/Pause, Reset, Export, Render
+    // Row 2: Screenshot, Record, —, Menu (close)
     this.controlsGrid.appendChild(this.playPauseButton);
     this.controlsGrid.appendChild(resetButton);
     this.controlsGrid.appendChild(exportButton);
+    this.controlsGrid.appendChild(renderButton);
     this.controlsGrid.appendChild(screenshotButton);
     this.controlsGrid.appendChild(recordButton);
+    // Empty spacer for grid alignment
+    const spacer = document.createElement('div');
+    this.controlsGrid.appendChild(spacer);
     this.controlsGrid.appendChild(menuButtonInGrid);
 
     // Add grid and standalone menu button to container

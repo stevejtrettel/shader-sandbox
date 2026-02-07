@@ -33,6 +33,9 @@ function packFloatArray(floats) {
   return new Float32Array(floats);
 }
 
+
+
+
 export function setup(engine) {
   // Load positions (27 vec3s)
   const positionsData = packVec3Array(jsonData.positions);

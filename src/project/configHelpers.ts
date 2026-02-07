@@ -4,7 +4,7 @@
  * the browser/Vite loader (loaderHelper.ts).
  */
 
-import type { PassName, ChannelValue, ChannelJSONObject } from './types';
+import type { PassName, ChannelValue, ChannelJSONObject, MultiViewConfig } from './types';
 
 /**
  * Type guard for PassName.
@@ -119,6 +119,7 @@ const VALID_TOP_LEVEL_KEYS = new Set([
   'mode', 'title', 'author', 'description', 'layout', 'theme', 'controls',
   'common', 'startPaused', 'pixelRatio', 'uniforms', 'buffers', 'textures',
   'Image', 'BufferA', 'BufferB', 'BufferC', 'BufferD',
+  'views', // multi-view projects
 ]);
 
 const VALID_PASS_KEYS = new Set(['source', 'iChannel0', 'iChannel1', 'iChannel2', 'iChannel3']);
@@ -220,6 +221,54 @@ export function validateConfig(config: Record<string, any>, root: string): void 
   if (errors.length > 0) {
     throw new Error(
       `Config validation failed for '${root}':\n${errors.map(e => `  - ${e}`).join('\n')}`
+    );
+  }
+}
+
+const VALID_MULTI_VIEW_LAYOUTS = new Set(['split', 'quad', 'inset']);
+
+/**
+ * Validate a multi-view config and throw on errors.
+ */
+export function validateMultiViewConfig(config: MultiViewConfig, root: string): void {
+  const errors: string[] = [];
+
+  if (!Array.isArray(config.views) || config.views.length < 2) {
+    errors.push(`'views' must be an array with at least 2 entries`);
+  } else {
+    for (const view of config.views) {
+      if (typeof view !== 'string' || !view) {
+        errors.push(`Each view name must be a non-empty string, got '${view}'`);
+      }
+    }
+    const unique = new Set(config.views);
+    if (unique.size !== config.views.length) {
+      errors.push(`Duplicate view names found`);
+    }
+  }
+
+  if (config.layout !== undefined && !VALID_MULTI_VIEW_LAYOUTS.has(config.layout)) {
+    errors.push(`Invalid multi-view layout '${config.layout}'. Expected one of: ${[...VALID_MULTI_VIEW_LAYOUTS].join(', ')}`);
+  }
+
+  if (config.theme !== undefined && !VALID_THEMES.has(config.theme)) {
+    errors.push(`Invalid theme '${config.theme}'. Expected one of: ${[...VALID_THEMES].join(', ')}`);
+  }
+
+  if (config.uniforms && typeof config.uniforms === 'object') {
+    for (const name of Object.keys(config.uniforms)) {
+      if (RESERVED_UNIFORM_NAMES.has(name)) {
+        errors.push(`Uniform name '${name}' is reserved (built-in uniform)`);
+      }
+      if (!isValidGLSLIdentifier(name)) {
+        errors.push(`Uniform name '${name}' is not a valid GLSL identifier`);
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(
+      `Multi-view config validation failed for '${root}':\n${errors.map(e => `  - ${e}`).join('\n')}`
     );
   }
 }

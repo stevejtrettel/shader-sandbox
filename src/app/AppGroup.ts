@@ -16,6 +16,7 @@
  */
 
 import { App } from './App';
+import { RuntimeErrorOverlay } from './RuntimeErrorOverlay';
 import {
   ShaderProject,
   MultiViewProject,
@@ -45,10 +46,12 @@ export class AppGroup {
   private startTime: number = 0;
   private isPaused: boolean = false;
   private frame: number = 0;
+  private pausedElapsedTime: number = 0;
 
   // Script handling (called once per frame, not per view)
   private script: DemoScriptHooks | null = null;
   private scriptAPI: ScriptEngineAPI | null = null;
+  private runtimeErrorOverlay: RuntimeErrorOverlay | null = null;
   private lastOnFrameTime: number | null = null;
   private scriptErrorCount: number = 0;
   private static readonly MAX_SCRIPT_ERRORS = 10;
@@ -87,6 +90,12 @@ export class AppGroup {
     // Set up script API for multi-view (called once per frame, not per view)
     this.script = opts.project.script;
     if (this.script) {
+      // Create error overlay on first view's container
+      const firstContainer = opts.containers.values().next().value;
+      if (firstContainer) {
+        this.runtimeErrorOverlay = new RuntimeErrorOverlay(firstContainer);
+      }
+
       this.initScriptAPI();
       // Run setup hook
       if (this.script.setup && this.scriptAPI) {
@@ -94,6 +103,7 @@ export class AppGroup {
           this.script.setup(this.scriptAPI);
         } catch (e) {
           console.error('script.js setup() threw:', e);
+          this.runtimeErrorOverlay?.showError('setup', e);
         }
       }
     }
@@ -213,8 +223,10 @@ export class AppGroup {
       } catch (e) {
         this.scriptErrorCount++;
         console.error(`script.js onFrame() threw (${this.scriptErrorCount}/${AppGroup.MAX_SCRIPT_ERRORS}):`, e);
+        this.runtimeErrorOverlay?.showError('onFrame', e);
         if (this.scriptErrorCount >= AppGroup.MAX_SCRIPT_ERRORS) {
           console.warn('script.js onFrame() disabled after too many errors');
+          this.runtimeErrorOverlay?.showDisabled();
         }
       }
       this.lastOnFrameTime = elapsedTime;
@@ -232,12 +244,17 @@ export class AppGroup {
    * Toggle play/pause state for all views.
    */
   togglePlayPause(): void {
-    this.isPaused = !this.isPaused;
-    if (!this.isPaused && this.animationId === null) {
-      // Resume from pause - restart animation loop
-      this.startTime = performance.now() / 1000 - (this.frame / 60); // Approximate resume
-      this.animate(performance.now());
+    if (!this.isPaused) {
+      // Pausing — record elapsed time so we can resume accurately
+      this.pausedElapsedTime = performance.now() / 1000 - this.startTime;
+    } else {
+      // Resuming — adjust startTime so elapsed time continues from where we left off
+      this.startTime = performance.now() / 1000 - this.pausedElapsedTime;
+      if (this.animationId === null) {
+        this.animate(performance.now());
+      }
     }
+    this.isPaused = !this.isPaused;
   }
 
   /**
@@ -253,6 +270,7 @@ export class AppGroup {
   reset(): void {
     this.frame = 0;
     this.startTime = performance.now() / 1000;
+    this.lastOnFrameTime = null;
 
     // Reset each app's engine
     for (const app of this.apps.values()) {
@@ -327,6 +345,7 @@ export class AppGroup {
    */
   dispose(): void {
     this.stop();
+    this.runtimeErrorOverlay?.dispose();
     for (const app of this.apps.values()) {
       app.dispose();
     }

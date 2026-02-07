@@ -28,6 +28,8 @@ export interface EngineOptions {
   project: ShaderProject;
   /** View names for multi-view projects (enables cross-view uniforms) */
   viewNames?: string[];
+  /** Callback fired on asset load errors (texture, framebuffer) */
+  onAssetError?: (error: { type: 'texture' | 'framebuffer'; name: string; detail: string }) => void;
 }
 
 // =============================================================================

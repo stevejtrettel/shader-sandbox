@@ -104,9 +104,13 @@ export class ShaderEngine {
   // View names for multi-view projects (enables cross-view uniforms)
   private _viewNames: string[] = [];
 
+  // Asset error callback
+  private _onAssetError?: (error: { type: 'texture' | 'framebuffer'; name: string; detail: string }) => void;
+
   constructor(opts: EngineOptions) {
     this.gl = opts.gl;
     this.project = opts.project;
+    this._onAssetError = opts.onAssetError;
 
     // Initialize width/height from current drawing buffer
     this._width = this.gl.drawingBufferWidth;
@@ -268,6 +272,17 @@ export class ShaderEngine {
   getUniformValues(): UniformValues { return this._uniformMgr.getAll(); }
   setUniformValue(name: string, value: UniformValue): void { this._uniformMgr.set(name, value); }
   setUniformValues(values: Partial<UniformValues>): void { this._uniformMgr.setMultiple(values); }
+
+  /** Export UBO data for HTML export (copies current padded data). */
+  getUBOExportData(): Array<{ name: string; type: string; count: number; bindingPoint: number; paddedData: Float32Array }> {
+    return this._uniformMgr.ubos.map(u => ({
+      name: u.name,
+      type: u.def.type,
+      count: u.def.count,
+      bindingPoint: u.bindingPoint,
+      paddedData: new Float32Array(u.paddedData),
+    }));
+  }
 
   /**
    * Get the framebuffer for the Image pass (for presenting to screen).
@@ -831,6 +846,7 @@ export class ShaderEngine {
       };
       image.onerror = () => {
         console.error(`Failed to load texture '${texDef.name}' from ${texDef.source}`);
+        this._onAssetError?.({ type: 'texture', name: texDef.name, detail: texDef.source });
       };
       image.src = texDef.source;
     }

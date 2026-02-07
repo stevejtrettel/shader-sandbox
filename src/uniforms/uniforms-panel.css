@@ -15,8 +15,8 @@
 
 /* Toggle button - uses shared glass variables from app.css */
 .uniforms-toggle-button {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   padding: 6px;
   background: var(--glass-bg);
   border: var(--glass-border);
@@ -74,7 +74,7 @@
 /* Closed state - scales down to toggle button size from top-right */
 .uniforms-panel.closed {
   opacity: 0;
-  transform: scale(0.18) translateX(0);
+  transform: scale(0.25) translateX(0);
   transform-origin: top right;
   pointer-events: none;
   max-height: 0;
@@ -107,8 +107,8 @@
   line-height: 1;
   cursor: pointer;
   padding: 0;
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;

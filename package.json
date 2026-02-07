@@ -32,8 +32,7 @@
   "files": [
     "bin",
     "dist-lib",
-    "templates",
-    "src"
+    "templates"
   ],
   "scripts": {
     "new": "node scripts/new-demo.cjs",

@@ -18,6 +18,7 @@ import type {
 import type { FileLoader } from './FileLoader';
 import { loadProjectFromFiles } from './loadProjectCore';
 import { isMultiViewConfig } from './types';
+import { validateMultiViewConfig } from './configHelpers';
 
 // =============================================================================
 // Case-Insensitive File Lookup
@@ -145,6 +146,7 @@ export async function loadDemo(
 
   // Check if this is a multi-view config
   if (config && isMultiViewConfig(config)) {
+    validateMultiViewConfig(config, normalizedPath);
     return loadMultiViewDemo(normalizedPath, config, glslFiles, imageFiles, scriptFiles);
   }
 

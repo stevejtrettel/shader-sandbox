@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/strettel/Code/shadertoys log --oneline -10 --format=\"%h %s%n%b---\")"
+    ]
+  }
+}

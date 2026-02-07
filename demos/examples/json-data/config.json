@@ -1,7 +1,8 @@
 {
   "title": "JSON Data to UBOs",
   "layout": "default",
-  "uniforms": {
+  "uniforms":
+   {
     "positions": {
       "type": "vec3",
       "count": 27

@@ -13,7 +13,8 @@ import './app.css';
 
 import { ShaderEngine } from '../engine/ShaderEngine';
 import { ErrorOverlay } from './ErrorOverlay';
-import { ShaderProject, ScriptEngineAPI, CrossViewState, OverlayPosition } from '../project/types';
+import { RuntimeErrorOverlay } from './RuntimeErrorOverlay';
+import { ShaderProject, ScriptEngineAPI, CrossViewState, OverlayPosition, hasUIControl } from '../project/types';
 import { UniformsPanel } from '../uniforms/UniformsPanel';
 import { AppOptions, MouseState } from './types';
 import { exportHTML as exportHTMLFile } from './exportHTML';
@@ -21,6 +22,7 @@ import { Recorder } from './Recorder';
 import { StatsPanel } from './StatsPanel';
 import { InputManager } from './InputManager';
 import { PlaybackControls } from './PlaybackControls';
+import { RenderDialog, RenderRequest } from './RenderDialog';
 
 export class App {
   private container: HTMLElement;
@@ -44,12 +46,14 @@ export class App {
   private playbackControls: PlaybackControls | null = null;
   private isPaused: boolean = false; // Will be set from project.startPaused in constructor
 
-  // Error overlay
+  // Error overlays
   private errorOverlay: ErrorOverlay;
+  private runtimeErrorOverlay: RuntimeErrorOverlay;
   private mediaBanner: HTMLElement | null = null;
 
   // Resize observer
   private resizeObserver: ResizeObserver;
+  private _resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Visibility observer (auto-pause when off-screen)
   private intersectionObserver: IntersectionObserver;
@@ -82,6 +86,9 @@ export class App {
   // Stored for future use when App needs to know it's externally coordinated
   private _externalAnimationLoop: boolean = false;
 
+  // View names for multi-view (stored for context restoration)
+  private _viewNames?: string[];
+
   // Script info overlays (one per corner position)
   private overlays: Map<OverlayPosition, HTMLElement> = new Map();
 
@@ -98,9 +105,10 @@ export class App {
     this.canvas.style.display = 'block';
     this.container.appendChild(this.canvas);
 
-    // Create recorder and error overlay
+    // Create recorder and error overlays
     this.recorder = new Recorder(this.canvas, this.container, opts.project.root);
     this.errorOverlay = new ErrorOverlay(this.container);
+    this.runtimeErrorOverlay = new RuntimeErrorOverlay(this.container);
 
     // Create stats panel
     this.statsPanel = new StatsPanel(this.container);
@@ -113,6 +121,7 @@ export class App {
         onScreenshot: () => this.screenshot(),
         onToggleRecording: () => this.toggleRecording(),
         onExportHTML: () => this.exportHTML(),
+        onRender: () => this.openRenderDialog(),
       });
     }
 
@@ -145,14 +154,21 @@ export class App {
     this.updateCanvasSize();
     this.statsPanel.updateResolution(this.canvas.width, this.canvas.height);
 
-    // Store external animation loop flag
+    // Store external animation loop flag and view names
     this._externalAnimationLoop = opts.externalAnimationLoop ?? false;
+    this._viewNames = opts.viewNames;
 
     // Create engine (pass viewNames for cross-view uniform support)
     this.engine = new ShaderEngine({
       gl: this.gl,
       project: opts.project,
       viewNames: opts.viewNames,
+      onAssetError: (err) => {
+        const title = err.type === 'texture'
+          ? `Texture '${err.name}' failed to load`
+          : `Framebuffer '${err.name}' error`;
+        this.runtimeErrorOverlay.showWarning(title, err.detail);
+      },
     });
 
     // Check for compilation errors and show overlay if needed
@@ -184,12 +200,13 @@ export class App {
           this.project.script.setup(this.scriptAPI);
         } catch (e) {
           console.error('script.js setup() threw:', e);
+          this.runtimeErrorOverlay.showError('setup', e);
         }
       }
     }
 
-    // Create floating uniforms panel (skip for 'ui' layout which has its own)
-    if (!opts.skipUniformsPanel && opts.project.uniforms && Object.keys(opts.project.uniforms).length > 0) {
+    // Create floating uniforms panel (skip for 'ui' layout, or if all uniforms are array/hidden)
+    if (!opts.skipUniformsPanel && opts.project.uniforms && Object.values(opts.project.uniforms).some(def => hasUIControl(def))) {
       this.uniformsPanel = new UniformsPanel({
         container: this.container,
         uniforms: opts.project.uniforms,
@@ -199,14 +216,23 @@ export class App {
       });
     }
 
-    // Set up resize observer
+    // Set up resize observer with debounced engine reset
     this.resizeObserver = new ResizeObserver(() => {
+      // Immediately update canvas size (cheap, prevents visual artifacts)
       this.updateCanvasSize();
-      this.engine.resize(this.canvas.width, this.canvas.height);
-      this.statsPanel.updateResolution(this.canvas.width, this.canvas.height);
-      // Reset frame counter so shaders can reinitialize (important for accumulators)
-      this.startTime = performance.now() / 1000;
-      this.engine.reset();
+
+      // Debounce the expensive engine resize + reset
+      if (this._resizeDebounceTimer !== null) {
+        clearTimeout(this._resizeDebounceTimer);
+      }
+      this._resizeDebounceTimer = setTimeout(() => {
+        this._resizeDebounceTimer = null;
+        this.engine.resize(this.canvas.width, this.canvas.height);
+        this.statsPanel.updateResolution(this.canvas.width, this.canvas.height);
+        // Reset frame counter so shaders can reinitialize (important for accumulators)
+        this.startTime = performance.now() / 1000;
+        this.engine.reset();
+      }, 150);
     });
     this.resizeObserver.observe(this.container);
 
@@ -372,8 +398,10 @@ export class App {
       } catch (e) {
         this.scriptErrorCount++;
         console.error(`script.js onFrame() threw (${this.scriptErrorCount}/${App.MAX_SCRIPT_ERRORS}):`, e);
+        this.runtimeErrorOverlay.showError('onFrame', e);
         if (this.scriptErrorCount >= App.MAX_SCRIPT_ERRORS) {
           console.warn('script.js onFrame() disabled after too many errors');
+          this.runtimeErrorOverlay.showDisabled();
         }
       }
       this._lastOnFrameTime = time;
@@ -437,6 +465,9 @@ export class App {
     this.recorder.dispose();
     this.playbackControls?.dispose();
     this.resizeObserver.disconnect();
+    if (this._resizeDebounceTimer !== null) {
+      clearTimeout(this._resizeDebounceTimer);
+    }
     this.intersectionObserver.disconnect();
     if (this.globalKeyHandler) document.removeEventListener('keydown', this.globalKeyHandler);
     if (this.controlsKeyHandler) document.removeEventListener('keydown', this.controlsKeyHandler);
@@ -446,6 +477,7 @@ export class App {
     this.statsPanel.dispose();
     this.hideContextLostOverlay();
     this.errorOverlay.hide();
+    this.runtimeErrorOverlay.dispose();
     this.hideMediaBanner();
     // Clean up overlays
     for (const overlay of this.overlays.values()) {
@@ -495,8 +527,10 @@ export class App {
       } catch (e) {
         this.scriptErrorCount++;
         console.error(`script.js onFrame() threw (${this.scriptErrorCount}/${App.MAX_SCRIPT_ERRORS}):`, e);
+        this.runtimeErrorOverlay.showError('onFrame', e);
         if (this.scriptErrorCount >= App.MAX_SCRIPT_ERRORS) {
           console.warn('script.js onFrame() disabled after too many errors');
+          this.runtimeErrorOverlay.showDisabled();
         }
       }
       this._lastOnFrameTime = elapsedTime;
@@ -563,10 +597,22 @@ export class App {
   }
 
   /**
+   * Check if a keyboard event target is a text input (where shortcuts should be ignored).
+   */
+  private static isTextInput(e: KeyboardEvent): boolean {
+    const target = e.target as HTMLElement | null;
+    if (!target) return false;
+    const tag = target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
+  }
+
+  /**
    * Set up global keyboard shortcuts (always available).
    */
   private setupGlobalShortcuts(): void {
     this.globalKeyHandler = (e: KeyboardEvent) => {
+      if (App.isTextInput(e)) return;
+
       // S - Screenshot
       if (e.code === 'KeyS' && !e.repeat) {
         e.preventDefault();
@@ -581,6 +627,8 @@ export class App {
    */
   private setupKeyboardShortcuts(): void {
     this.controlsKeyHandler = (e: KeyboardEvent) => {
+      if (App.isTextInput(e)) return;
+
       // Space - Play/Pause
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
@@ -635,10 +683,17 @@ export class App {
       // Dispose old engine resources (they're invalid now)
       this.engine.dispose();
 
-      // Reinitialize engine with fresh GL state
+      // Reinitialize engine with fresh GL state (include viewNames for cross-view uniforms)
       this.engine = new ShaderEngine({
         gl: this.gl,
         project: this.project,
+        viewNames: this._viewNames,
+        onAssetError: (err) => {
+          const title = err.type === 'texture'
+            ? `Texture '${err.name}' failed to load`
+            : `Framebuffer '${err.name}' error`;
+          this.runtimeErrorOverlay.showWarning(title, err.detail);
+        },
       });
 
       // Check for compilation errors
@@ -648,6 +703,16 @@ export class App {
 
       // Resize to current dimensions
       this.engine.resize(this.canvas.width, this.canvas.height);
+
+      // Re-run script setup to restore UBO data and other script state
+      if (this.scriptAPI && this.project.script?.setup) {
+        try {
+          this.project.script.setup(this.scriptAPI);
+        } catch (e) {
+          console.error('script.js setup() threw during context restore:', e);
+          this.runtimeErrorOverlay.showError('setup', e);
+        }
+      }
 
       // Hide context lost overlay and resume
       this.hideContextLostOverlay();
@@ -728,6 +793,7 @@ export class App {
    */
   reset(): void {
     this.startTime = performance.now() / 1000;
+    this._lastOnFrameTime = null;
     this.statsPanel.reset();
     this.engine.reset();
   }
@@ -790,6 +856,176 @@ export class App {
    */
   exportHTML(): void {
     exportHTMLFile(this.project, this.engine);
+  }
+
+  /**
+   * Open the render dialog for deterministic frame/video export.
+   */
+  openRenderDialog(): void {
+    const dialog = new RenderDialog(
+      this.container,
+      this.canvas.width,
+      this.canvas.height,
+      (req) => this.renderOffline(req),
+    );
+    dialog.open();
+  }
+
+  /**
+   * Render frames offline using the existing engine.
+   * Pauses live rendering, resizes to target, steps deterministically,
+   * captures output, then restores original state.
+   * Returns a cancel function.
+   */
+  private renderOffline(req: RenderRequest): () => void {
+    let cancelled = false;
+    const cancel = () => { cancelled = true; };
+
+    const run = async () => {
+      const origW = this.canvas.width;
+      const origH = this.canvas.height;
+      const wasPaused = this.isPaused;
+
+      try {
+        // Pause live rendering
+        this.isPaused = true;
+
+        // Resize to target resolution
+        this.canvas.width = req.width;
+        this.canvas.height = req.height;
+        this.engine.resize(req.width, req.height);
+        this.engine.reset();
+
+        // Re-run script setup for clean state
+        if (this.scriptAPI && this.project.script?.setup) {
+          this.project.script.setup(this.scriptAPI);
+        }
+
+        const totalFrames = Math.ceil(req.fps * req.duration);
+
+        if (req.format === 'video') {
+          await this.renderVideoFrames(totalFrames, req.fps, cancelled, () => cancelled, req.onProgress);
+        } else {
+          await this.renderPngFrames(totalFrames, req.fps, cancelled, () => cancelled, req.onProgress);
+        }
+
+        if (!cancelled) req.onComplete();
+      } catch (e) {
+        if (!cancelled) req.onError(e instanceof Error ? e : new Error(String(e)));
+      } finally {
+        // Restore original state
+        this.canvas.width = origW;
+        this.canvas.height = origH;
+        this.engine.resize(origW, origH);
+        this.engine.reset();
+        if (this.scriptAPI && this.project.script?.setup) {
+          try { this.project.script.setup(this.scriptAPI); } catch { /* ignore */ }
+        }
+        this.isPaused = wasPaused;
+      }
+    };
+
+    run();
+    return cancel;
+  }
+
+  private async renderPngFrames(
+    totalFrames: number, fps: number,
+    _cancelled: boolean, isCancelled: () => boolean,
+    onProgress: (frame: number, total: number) => void,
+  ): Promise<void> {
+    // Try File System Access API for batch saving
+    let dirHandle: FileSystemDirectoryHandle | null = null;
+    if ('showDirectoryPicker' in window) {
+      try {
+        dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+      } catch { /* user cancelled — fall back to individual downloads */ }
+    }
+
+    for (let frame = 0; frame < totalFrames; frame++) {
+      if (isCancelled()) return;
+
+      this.stepForRender(frame, fps);
+      this.presentToScreen();
+
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        this.canvas.toBlob((b) => b ? resolve(b) : reject(new Error('Failed to capture frame')), 'image/png');
+      });
+
+      const filename = `frame_${String(frame).padStart(5, '0')}.png`;
+      if (dirHandle) {
+        const fh = await dirHandle.getFileHandle(filename, { create: true });
+        const w = await fh.createWritable();
+        await w.write(blob);
+        await w.close();
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      onProgress(frame + 1, totalFrames);
+      if (frame % 10 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  private async renderVideoFrames(
+    totalFrames: number, fps: number,
+    _cancelled: boolean, isCancelled: () => boolean,
+    onProgress: (frame: number, total: number) => void,
+  ): Promise<void> {
+    // 2D canvas for MediaRecorder (can't record from WebGL directly)
+    const videoCanvas = document.createElement('canvas');
+    videoCanvas.width = this.canvas.width;
+    videoCanvas.height = this.canvas.height;
+    const ctx = videoCanvas.getContext('2d')!;
+
+    const stream = videoCanvas.captureStream(0);
+    const recorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 8_000_000,
+    });
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    const done = new Promise<void>(r => { recorder.onstop = () => r(); });
+    recorder.start();
+
+    for (let frame = 0; frame < totalFrames; frame++) {
+      if (isCancelled()) { recorder.stop(); await done; return; }
+
+      this.stepForRender(frame, fps);
+      this.presentToScreen();
+      ctx.drawImage(this.canvas, 0, 0);
+
+      const track = stream.getVideoTracks()[0] as any;
+      if (track?.requestFrame) track.requestFrame();
+
+      onProgress(frame + 1, totalFrames);
+      if (frame % 10 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    recorder.stop();
+    await done;
+
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `render_${this.canvas.width}x${this.canvas.height}_${fps}fps.webm`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  private stepForRender(frame: number, fps: number): void {
+    const time = frame / fps;
+    const deltaTime = 1 / fps;
+
+    if (this.scriptAPI && this.project.script?.onFrame) {
+      try { this.project.script.onFrame(this.scriptAPI, time, deltaTime, frame); } catch { /* ignore */ }
+    }
+
+    this.engine.step(time, [0, 0, 0, 0], false);
   }
 
   // ===========================================================================
