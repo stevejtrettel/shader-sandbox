@@ -18,7 +18,7 @@ import type {
 import type { FileLoader } from './FileLoader';
 import { loadProjectFromFiles } from './loadProjectCore';
 import { isMultiViewConfig } from './types';
-import { validateMultiViewConfig } from './configHelpers';
+import { validateMultiViewConfig, DEFAULT_CONTROLS } from './configHelpers';
 
 // =============================================================================
 // Case-Insensitive File Lookup
@@ -243,7 +243,7 @@ async function loadMultiViewDemo(
       description: config.description ?? null,
     },
     theme: config.theme ?? 'light',
-    controls: config.controls ?? true,
+    controls: config.controls ?? DEFAULT_CONTROLS,
     startPaused: config.startPaused ?? false,
     pixelRatio: config.pixelRatio ?? null,
     commonSource,

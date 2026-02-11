@@ -11,16 +11,13 @@ import './styles/base.css';
 export { mount } from './mount';
 export type { MountOptions, MountHandle } from './mount';
 
-// Single-view components
+// Components
 export { App } from './app/App';
-export { createLayout, applyTheme } from './layouts';
-export { UILayout } from './layouts';
-export { loadDemo } from './project/loaderHelper';
-
-// Multi-view components
-export { AppGroup } from './app/AppGroup';
+export { ShaderView } from './app/ShaderView';
 export { MultiViewControls } from './app/MultiViewControls';
-export { createMultiViewLayout } from './layouts';
+export { createLayout, applyTheme, createMultiViewLayout } from './layouts';
+export { GridLayout } from './layouts/GridLayout';
+export { loadDemo } from './project/loaderHelper';
 
 // Types
 export type {

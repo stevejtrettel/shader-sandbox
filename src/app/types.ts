@@ -4,21 +4,22 @@
  * Types for the browser runtime coordinator.
  */
 
-import type { ShaderProject } from '../project/types';
+import type { ShaderProject, MultiViewProject } from '../project/types';
 
 /**
  * Options for creating the App.
  */
 export interface AppOptions {
   /**
-   * HTML container element (App will create canvas inside).
+   * HTML container element (App will create canvas inside for single-view,
+   * or attach stats/controls here for multi-view).
    */
   container: HTMLElement;
 
   /**
-   * Loaded Shadertoy project.
+   * Loaded project (single-view or multi-view).
    */
-  project: ShaderProject;
+  project: ShaderProject | MultiViewProject;
 
   /**
    * Canvas pixel ratio (default: window.devicePixelRatio).
@@ -28,28 +29,23 @@ export interface AppOptions {
 
   /**
    * Skip creating the floating uniforms panel.
-   * Used by 'ui' layout which has its own uniforms panel.
+   * Used by 'ui' layout which has its own uniforms panel,
+   * or by multi-view which uses MultiViewControls.
    */
   skipUniformsPanel?: boolean;
 
   /**
    * Skip creating the playback controls overlay.
-   * Used by 'ui' layout which has its own playback controls.
+   * Used by 'ui' layout which has its own playback controls,
+   * or by multi-view which uses MultiViewControls.
    */
   skipPlaybackControls?: boolean;
 
   /**
-   * Skip creating internal animation loop.
-   * Used by AppGroup which manages a shared animation loop for all views.
-   * When true, call stepExternal() manually each frame.
+   * For multi-view: container elements keyed by view name.
+   * Required when project is a MultiViewProject.
    */
-  externalAnimationLoop?: boolean;
-
-  /**
-   * View names for multi-view projects.
-   * Enables cross-view uniforms (iMouse_viewName, etc.)
-   */
-  viewNames?: string[];
+  viewContainers?: Map<string, HTMLElement>;
 }
 
 /**

@@ -71,7 +71,8 @@ export class UniformStore {
    * Get the current value of a uniform.
    */
   get(name: string): UniformValue | undefined {
-    return this.values[name];
+    const value = this.values[name];
+    return value !== undefined ? this.cloneValue(value) : undefined;
   }
 
   /**

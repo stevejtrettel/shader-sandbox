@@ -75,7 +75,7 @@ export const CHANNEL_KEYS = ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3']
 export const DEFAULT_LAYOUT = 'default' as const;
 
 /** Default controls setting. */
-export const DEFAULT_CONTROLS = false;
+export const DEFAULT_CONTROLS = true;
 
 /** Default theme. */
 export const DEFAULT_THEME = 'light' as const;
@@ -225,7 +225,7 @@ export function validateConfig(config: Record<string, any>, root: string): void 
   }
 }
 
-const VALID_MULTI_VIEW_LAYOUTS = new Set(['split', 'quad', 'inset']);
+const VALID_MULTI_VIEW_LAYOUTS = new Set(['split', 'quad', 'grid', 'inset']);
 
 /**
  * Validate a multi-view config and throw on errors.

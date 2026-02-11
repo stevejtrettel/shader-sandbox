@@ -101,6 +101,12 @@ export class ShaderEngine {
   // Script-uploaded textures
   private _scriptTextures: Map<string, RuntimeScriptTexture> = new Map();
 
+  // Shared VAO for fullscreen triangle (all passes reference this)
+  private _sharedVAO: WebGLVertexArrayObject | null = null;
+
+  // Disposal flag — guards async callbacks (e.g. image loads) after engine is destroyed
+  private _disposed = false;
+
   // View names for multi-view projects (enables cross-view uniforms)
   private _viewNames: string[] = [];
 
@@ -624,15 +630,21 @@ export class ShaderEngine {
    * Delete all GL resources.
    */
   dispose(): void {
+    this._disposed = true;
     const gl = this.gl;
 
-    // Delete passes (programs, VAOs, FBOs, textures)
+    // Delete passes (programs, FBOs, textures)
     for (const pass of this._passes) {
       gl.deleteProgram(pass.uniforms.program);
-      gl.deleteVertexArray(pass.vao);
       gl.deleteFramebuffer(pass.framebuffer);
       gl.deleteTexture(pass.currentTexture);
       gl.deleteTexture(pass.previousTexture);
+    }
+
+    // Delete shared VAO (once, not per-pass)
+    if (this._sharedVAO) {
+      gl.deleteVertexArray(this._sharedVAO);
+      this._sharedVAO = null;
     }
 
     // Delete external textures
@@ -649,6 +661,12 @@ export class ShaderEngine {
     if (this._blackTexture) {
       gl.deleteTexture(this._blackTexture);
     }
+
+    // Delete script textures
+    for (const [, scriptTex] of this._scriptTextures) {
+      gl.deleteTexture(scriptTex.texture);
+    }
+    this._scriptTextures.clear();
 
     // Dispose uniform manager (UBO buffers)
     this._uniformMgr.dispose(gl);
@@ -818,23 +836,24 @@ export class ShaderEngine {
       const image = new Image();
       image.crossOrigin = 'anonymous';
       image.onload = () => {
+        if (this._disposed || gl.isContextLost()) return;
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
-        // Set filter
-        const filter = texDef.filter === 'nearest' ? gl.NEAREST : gl.LINEAR;
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+        // Set filter (use mipmap-aware min filter for linear)
+        const isLinear = texDef.filter !== 'nearest';
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, isLinear ? gl.LINEAR : gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, isLinear ? gl.LINEAR_MIPMAP_LINEAR : gl.NEAREST);
 
         // Set wrap mode
         const wrap = texDef.wrap === 'clamp' ? gl.CLAMP_TO_EDGE : gl.REPEAT;
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
 
-        // Generate mipmaps if using linear filtering
-        if (texDef.filter === 'linear') {
+        // Generate mipmaps for linear filtering
+        if (isLinear) {
           gl.generateMipmap(gl.TEXTURE_2D);
         }
 
@@ -861,6 +880,7 @@ export class ShaderEngine {
 
     // Shared VAO (all passes use the same fullscreen triangle)
     const sharedVAO = createFullscreenTriangleVAO(gl);
+    this._sharedVAO = sharedVAO;
 
     // Build passes in Shadertoy order
     const passOrder: PassName[] = ['BufferA', 'BufferB', 'BufferC', 'BufferD', 'Image'];
@@ -1153,7 +1173,8 @@ export class ShaderEngine {
         // Buffer reference → find RuntimePass and return current or previous texture
         const targetPass = this._passes.find((p) => p.name === source.buffer);
         if (!targetPass) {
-          throw new Error(`Buffer '${source.buffer}' not found`);
+          console.warn(`resolveChannelTexture: buffer '${source.buffer}' not found, using black`);
+          return this._blackTexture!;
         }
 
         // Default to previous frame (safer, matches common use case)
@@ -1165,7 +1186,8 @@ export class ShaderEngine {
         // External texture → find RuntimeTexture by name
         const tex = this._textures.find((t) => t.name === source.name);
         if (!tex) {
-          throw new Error(`Texture '${source.name}' not found`);
+          console.warn(`resolveChannelTexture: texture '${source.name}' not found, using black`);
+          return this._blackTexture!;
         }
         return tex.texture;
       }

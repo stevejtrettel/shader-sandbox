@@ -118,7 +118,9 @@ export function createEditor(
       textarea.removeEventListener('input', update);
       textarea.removeEventListener('scroll', syncScroll);
       textarea.removeEventListener('keydown', handleKeydown);
-      container.removeChild(wrapper);
+      if (wrapper.parentNode) {
+        wrapper.parentNode.removeChild(wrapper);
+      }
     },
   };
 }

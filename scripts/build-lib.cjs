@@ -75,12 +75,15 @@ try {
     fs.copyFileSync(cssFile, dest);
   }
 
-  // Clean up temporary tsconfig
-  fs.unlinkSync(tsconfigPath);
-
   console.log('✓ Library built successfully to dist-lib/');
 
 } catch (error) {
   console.error('Build failed:', error.message);
   process.exit(1);
+} finally {
+  // Clean up temporary tsconfig (even on failure)
+  const tsconfigPath = path.join(ROOT, 'tsconfig.lib.json');
+  if (fs.existsSync(tsconfigPath)) {
+    fs.unlinkSync(tsconfigPath);
+  }
 }

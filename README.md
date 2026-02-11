@@ -312,7 +312,6 @@ Set `"layout"` in config.json:
 | `default` | Centered canvas with styling |
 | `split` | Side-by-side canvas and live code editor |
 | `tabbed` | Tabs to switch between canvas and code |
-| `ui` | Canvas alongside uniforms control panel |
 
 ## Playback Controls
 
@@ -329,8 +328,8 @@ Set `"controls": true` in config to show on-screen buttons for play/pause, reset
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `layout` | string | `"default"` | Canvas layout mode (see Layouts) |
-| `theme` | string | `"system"` | `"light"`, `"dark"`, or `"system"` (follows OS preference) |
-| `controls` | boolean | `false` | Show on-screen playback controls |
+| `theme` | string | `"light"` | `"light"`, `"dark"`, or `"system"` (follows OS preference) |
+| `controls` | boolean | `true` | Show on-screen playback controls |
 | `startPaused` | boolean | `false` | Start with animation paused |
 | `pixelRatio` | number | device ratio | Canvas resolution multiplier (use < 1 for performance) |
 | `common` | string | — | Path to shared GLSL file prepended to all passes |

@@ -7,27 +7,32 @@
  * - Screenshot button
  * - Uniform sliders (if any defined)
  *
- * Coordinates with AppGroup for playback and uniform control.
+ * Decoupled from App — uses callbacks for all interactions.
  */
 
 import './multi-view-controls.css';
 
-import { AppGroup } from './AppGroup';
-import { UniformDefinitions, hasUIControl } from '../project/types';
+import { UniformDefinitions, UniformValue, hasUIControl } from '../project/types';
 import { UniformControls } from '../uniforms/UniformControls';
 
 export interface MultiViewControlsOptions {
   /** Wrapper element to attach controls to */
   wrapper: HTMLElement;
-  /** AppGroup to control */
-  appGroup: AppGroup;
+  /** Toggle play/pause callback */
+  onTogglePlayPause: () => void;
+  /** Reset callback */
+  onReset: () => void;
+  /** Get current paused state */
+  getPaused: () => boolean;
+  /** Set uniform value callback (optional) */
+  onSetUniformValue?: (name: string, value: UniformValue) => void;
   /** Uniform definitions (optional) */
   uniforms?: UniformDefinitions;
 }
 
 export class MultiViewControls {
   private wrapper: HTMLElement;
-  private appGroup: AppGroup;
+  private opts: MultiViewControlsOptions;
 
   private controlsWrapper: HTMLElement;
   private toggleButton: HTMLElement;
@@ -38,8 +43,8 @@ export class MultiViewControls {
 
   constructor(opts: MultiViewControlsOptions) {
     this.wrapper = opts.wrapper;
-    this.appGroup = opts.appGroup;
-    this.isPaused = opts.appGroup.getPaused();
+    this.opts = opts;
+    this.isPaused = opts.getPaused();
 
     // Create controls wrapper (positioned in upper-right of wrapper)
     this.controlsWrapper = document.createElement('div');
@@ -103,8 +108,8 @@ export class MultiViewControls {
     playPauseBtn.title = 'Play/Pause';
     this.updatePlayPauseIcon(playPauseBtn);
     playPauseBtn.addEventListener('click', () => {
-      this.appGroup.togglePlayPause();
-      this.isPaused = this.appGroup.getPaused();
+      this.opts.onTogglePlayPause();
+      this.isPaused = this.opts.getPaused();
       this.updatePlayPauseIcon(playPauseBtn);
     });
     playbackSection.appendChild(playPauseBtn);
@@ -120,7 +125,7 @@ export class MultiViewControls {
       </svg>
     `;
     resetBtn.addEventListener('click', () => {
-      this.appGroup.reset();
+      this.opts.onReset();
     });
     playbackSection.appendChild(resetBtn);
 
@@ -143,7 +148,7 @@ export class MultiViewControls {
         container: uniformsContainer,
         uniforms,
         onChange: (name, value) => {
-          this.appGroup.setUniformValue(name, value);
+          this.opts.onSetUniformValue?.(name, value);
         },
       });
 

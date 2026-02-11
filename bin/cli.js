@@ -28,6 +28,10 @@ const command = args[0];
 const AVAILABLE_TEMPLATES = ['simple', 'shadertoy', 'buffers', 'scripted'];
 const DEFAULT_TEMPLATE = 'simple';
 
+// Read own package version for use in generated projects
+const ownPackageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf-8'));
+const PACKAGE_VERSION = `^${ownPackageJson.version}`;
+
 function printUsage() {
   console.log(`
 Shader Sandbox - Local GLSL shader development
@@ -56,6 +60,10 @@ Examples:
   shader new my-shader scripted     Create with scripted template
   shader list                       Show all shaders
 `);
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function copyDir(src, dest, skipFiles = []) {
@@ -164,7 +172,7 @@ async function create(projectName) {
     // Add dependencies to existing package.json
     const existingPackage = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
     existingPackage.dependencies = existingPackage.dependencies || {};
-    existingPackage.dependencies['@stevejtrettel/shader-sandbox'] = '^0.1.0';
+    existingPackage.dependencies['@stevejtrettel/shader-sandbox'] = PACKAGE_VERSION;
     existingPackage.dependencies['vite'] = '^5.0.0';
     existingPackage.dependencies['vite-plugin-css-injected-by-js'] = '^3.5.0';
     fs.writeFileSync(packageJsonPath, JSON.stringify(existingPackage, null, 2) + '\n');
@@ -180,7 +188,7 @@ async function create(projectName) {
         list: 'shader list'
       },
       dependencies: {
-        '@stevejtrettel/shader-sandbox': '^0.1.0',
+        '@stevejtrettel/shader-sandbox': PACKAGE_VERSION,
         'vite': '^5.0.0',
         'vite-plugin-css-injected-by-js': '^3.5.0'
       }
@@ -315,6 +323,14 @@ Run it:
 `);
 }
 
+function findViteBin(cwd) {
+  const base = path.join(cwd, 'node_modules', '.bin', 'vite');
+  // On Windows, npm creates .cmd shims; check both forms
+  if (fs.existsSync(base)) return base;
+  if (fs.existsSync(base + '.cmd')) return base + '.cmd';
+  return null;
+}
+
 function runVite(viteArgs, shaderName) {
   const cwd = process.cwd();
 
@@ -326,8 +342,8 @@ function runVite(viteArgs, shaderName) {
   }
 
   // Find vite binary
-  const viteBin = path.join(cwd, 'node_modules', '.bin', 'vite');
-  if (!fs.existsSync(viteBin)) {
+  const viteBin = findViteBin(cwd);
+  if (!viteBin) {
     console.error('Error: vite not found in node_modules');
     console.error('Run "npm install" first');
     process.exit(1);
@@ -362,7 +378,10 @@ switch (command) {
       console.error('  npx @stevejtrettel/shader-sandbox create .');
       process.exit(1);
     }
-    create(name);
+    create(name).catch(err => {
+      console.error('Error creating project:', err.message || err);
+      process.exit(1);
+    });
     break;
   }
 
@@ -487,8 +506,119 @@ switch (command) {
       process.exit(1);
     }
 
+    // Generate a shader-specific build entry that exports mount().
+    // Uses shader-specific glob patterns so only this shader's files are bundled.
+    const buildEntryPath = path.join(cwd, '_build-entry.js');
+    const buildEntryCode = `
+import { mount as _mount, loadDemo } from '@stevejtrettel/shader-sandbox';
+
+const glslFiles = import.meta.glob('./shaders/${shaderName}/**/*.glsl', { query: '?raw', import: 'default' });
+const jsonFiles = import.meta.glob('./shaders/${shaderName}/*.json', { import: 'default' });
+const imageFiles = import.meta.glob('./shaders/${shaderName}/**/*.{jpg,jpeg,png,gif,webp,bmp}', { query: '?url', import: 'default' });
+const scriptFiles = import.meta.glob('./shaders/${shaderName}/**/script.js');
+
+let _project = null;
+
+async function getProject() {
+  if (!_project) {
+    _project = await loadDemo('shaders/${shaderName}', glslFiles, jsonFiles, imageFiles, scriptFiles);
+  }
+  return _project;
+}
+
+/**
+ * Mount this shader into a DOM element.
+ * The element is fully owned by the shader — it will append canvases, controls, etc.
+ *
+ * @param {HTMLElement} el - Target container element
+ * @param {Object} [options] - Mount options (styled, pixelRatio)
+ * @returns {Promise<{app, destroy}>} Handle with destroy() for cleanup
+ */
+export async function mount(el, options = {}) {
+  const project = await getProject();
+  return _mount(el, { project, ...options });
+}
+`.trimStart();
+
+    fs.writeFileSync(buildEntryPath, buildEntryCode);
+
+    function cleanupBuildEntry() {
+      try { fs.unlinkSync(buildEntryPath); } catch {}
+    }
+
     console.log(`Building "${shaderName}"...`);
-    runVite(['build'], shaderName);
+
+    const viteBin = findViteBin(cwd);
+    if (!viteBin) {
+      cleanupBuildEntry();
+      console.error('Error: vite not found in node_modules');
+      console.error('Run "npm install" first');
+      process.exit(1);
+    }
+
+    const env = { ...process.env, SHADER_NAME: shaderName, SHADER_BUILD_ENTRY: '1' };
+
+    const child = spawn(viteBin, ['build'], {
+      cwd,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+      env
+    });
+
+    child.on('error', (err) => {
+      cleanupBuildEntry();
+      console.error('Failed to start vite:', err.message);
+      process.exit(1);
+    });
+
+    child.on('close', (code) => {
+      cleanupBuildEntry();
+
+      if (code === 0) {
+        const outDir = path.join(cwd, 'dist', shaderName);
+
+        // Copy live-app.js custom element to output
+        const liveAppSrc = path.join(packageRoot, 'templates', 'live-app.js');
+        if (fs.existsSync(liveAppSrc)) {
+          fs.copyFileSync(liveAppSrc, path.join(outDir, 'live-app.js'));
+        }
+
+        // Generate a convenience index.html that uses <live-app>
+        const prettyTitle = shaderName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const indexHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${prettyTitle}</title>
+  <script type="module" src="./live-app.js"><\/script>
+  <style>* { margin: 0; padding: 0; box-sizing: border-box; }</style>
+</head>
+<body>
+  <live-app src="./main.js" fullpage><\/live-app>
+</body>
+</html>`;
+        fs.writeFileSync(path.join(outDir, 'index.html'), indexHtml);
+
+        console.log(`\n✓ Built to dist/${shaderName}/`);
+        console.log('');
+        console.log('Files:');
+        console.log(`  dist/${shaderName}/main.js       ES module (exports mount)`);
+        console.log(`  dist/${shaderName}/live-app.js    <live-app> custom element`);
+        console.log(`  dist/${shaderName}/index.html     Standalone page`);
+        console.log('');
+        console.log('Embed in your site:');
+        console.log(`  <script type="module" src="/js/live-app.js"><\/script>`);
+        console.log(`  <live-app src="/visualizations/${shaderName}.js" style="width:100%;height:400px;display:block"><\/live-app>`);
+        console.log('');
+        console.log('Or import directly:');
+        console.log(`  import { mount } from './${shaderName}/main.js';`);
+        console.log(`  const handle = await mount(myElement);`);
+        console.log(`  // later: handle.destroy();`);
+      }
+      process.exit(code || 0);
+    });
+
     break;
   }
 
@@ -516,7 +646,15 @@ switch (command) {
       return { name, title, description };
     });
 
+    // Check which shaders have been built
     const distDir = path.join(cwd, 'dist');
+    const notBuilt = cards.filter(c => !fs.existsSync(path.join(distDir, c.name, 'index.html')));
+    if (notBuilt.length > 0) {
+      console.warn(`Warning: ${notBuilt.length} shader(s) not yet built — gallery links will be broken:`);
+      notBuilt.forEach(c => console.warn(`  ${c.name}  (run: npx shader build ${c.name})`));
+      console.warn('');
+    }
+
     fs.mkdirSync(distDir, { recursive: true });
 
     const galleryHTML = `<!DOCTYPE html>
@@ -586,10 +724,10 @@ switch (command) {
 <body>
   <h1>Shader Gallery</h1>
   <div class="gallery">
-${cards.map(c => `    <a class="card" href="${c.name}/index.html">
-      <div class="card-title">${c.title}</div>
-      ${c.title !== c.name ? `<div class="card-name">${c.name}</div>` : ''}
-      ${c.description ? `<div class="card-desc">${c.description}</div>` : ''}
+${cards.map(c => `    <a class="card" href="${escapeHtml(c.name)}/index.html">
+      <div class="card-title">${escapeHtml(c.title)}</div>
+      ${c.title !== c.name ? `<div class="card-name">${escapeHtml(c.name)}</div>` : ''}
+      ${c.description ? `<div class="card-desc">${escapeHtml(c.description)}</div>` : ''}
     </a>`).join('\n')}
   </div>
 </body>
@@ -652,8 +790,8 @@ ${cards.map(c => `    <a class="card" href="${c.name}/index.html">
       SHADER_RENDER: JSON.stringify(renderOpts),
     };
 
-    const viteBin = path.join(cwd, 'node_modules', '.bin', 'vite');
-    if (!fs.existsSync(viteBin)) {
+    const viteBin = findViteBin(cwd);
+    if (!viteBin) {
       console.error('Error: vite not found. Run "npm install" first');
       process.exit(1);
     }
@@ -667,15 +805,34 @@ ${cards.map(c => `    <a class="card" href="${c.name}/index.html">
     });
 
     let serverUrl = '';
+
+    // Timeout if Vite never prints the server URL
+    const startupTimeout = setTimeout(() => {
+      if (!serverUrl) {
+        console.error('Error: Timed out waiting for Vite dev server to start');
+        viteChild.kill();
+        process.exit(1);
+      }
+    }, 30000);
+
     viteChild.stdout.on('data', async (data) => {
       const text = data.toString();
       const match = text.match(/Local:\s+(https?:\/\/[^\s]+)/);
       if (match && !serverUrl) {
         serverUrl = match[1];
+        clearTimeout(startupTimeout);
         console.log(`Dev server at ${serverUrl}`);
 
         try {
-          const puppeteer = await import('puppeteer-core');
+          let puppeteer;
+          try {
+            puppeteer = await import('puppeteer-core');
+          } catch {
+            console.error('Error: puppeteer-core is required for the render command.');
+            console.error('Install it with: npm install puppeteer-core');
+            viteChild.kill();
+            process.exit(1);
+          }
           // Try common Chrome paths
           const chromePaths = process.platform === 'darwin'
             ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -714,10 +871,11 @@ ${cards.map(c => `    <a class="card" href="${c.name}/index.html">
           await browser.close();
         } catch (e) {
           console.error('Render error:', e.message);
-        } finally {
           viteChild.kill();
-          process.exit(0);
+          process.exit(1);
         }
+        viteChild.kill();
+        process.exit(0);
       }
     });
 

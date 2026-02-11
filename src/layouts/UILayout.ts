@@ -32,6 +32,7 @@ export class UILayout implements BaseLayout {
   private onReset: (() => void) | null = null;
   private onScreenshot: (() => void) | null = null;
   private onUniformChange: ((name: string, value: UniformValue) => void) | null = null;
+  private _disposed = false;
 
   constructor(opts: LayoutOptions) {
     this.container = opts.container;
@@ -108,6 +109,7 @@ export class UILayout implements BaseLayout {
   }
 
   dispose(): void {
+    this._disposed = true;
     if (this.uniformControls) {
       this.uniformControls.destroy();
       this.uniformControls = null;
@@ -168,6 +170,7 @@ export class UILayout implements BaseLayout {
 
     try {
       const { UniformControls } = await import('../uniforms/UniformControls');
+      if (this._disposed) return;
       this.uniformControls = new UniformControls({
         container: this.uniformsContainer,
         uniforms: uniforms,

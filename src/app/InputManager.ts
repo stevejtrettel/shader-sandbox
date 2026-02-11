@@ -76,6 +76,7 @@ export class InputManager {
   // Store bound handlers for cleanup
   private keydownHandler: (e: KeyboardEvent) => void;
   private keyupHandler: (e: KeyboardEvent) => void;
+  private canvasListeners: Array<{ event: string; handler: EventListener }> = [];
 
   constructor(canvas: HTMLCanvasElement, pixelRatio: number) {
     this.canvas = canvas;
@@ -116,6 +117,10 @@ export class InputManager {
   dispose(): void {
     document.removeEventListener('keydown', this.keydownHandler);
     document.removeEventListener('keyup', this.keyupHandler);
+    for (const { event, handler } of this.canvasListeners) {
+      this.canvas.removeEventListener(event, handler);
+    }
+    this.canvasListeners = [];
   }
 
   private triggerGesture(): void {
@@ -132,7 +137,7 @@ export class InputManager {
       return [x, y];
     };
 
-    this.canvas.addEventListener('mousedown', (e: MouseEvent) => {
+    const onMouseDown = (e: MouseEvent) => {
       const [x, y] = getCoords(e);
       this.isMouseDown = true;
       this.mouse[0] = x;
@@ -141,21 +146,30 @@ export class InputManager {
       this.mouse[3] = y;
 
       this.triggerGesture();
-    });
+    };
 
-    this.canvas.addEventListener('mousemove', (e: MouseEvent) => {
+    const onMouseMove = (e: MouseEvent) => {
       if (!this.isMouseDown) return;
       const [x, y] = getCoords(e);
       this.mouse[0] = x;
       this.mouse[1] = y;
-    });
+    };
 
-    this.canvas.addEventListener('mouseup', () => {
+    const onMouseUp = () => {
       this.isMouseDown = false;
       // Negate zw to signal mouse is no longer held
       this.mouse[2] = -Math.abs(this.mouse[2]);
       this.mouse[3] = -Math.abs(this.mouse[3]);
-    });
+    };
+
+    this.canvas.addEventListener('mousedown', onMouseDown as EventListener);
+    this.canvas.addEventListener('mousemove', onMouseMove as EventListener);
+    this.canvas.addEventListener('mouseup', onMouseUp as EventListener);
+    this.canvasListeners.push(
+      { event: 'mousedown', handler: onMouseDown as EventListener },
+      { event: 'mousemove', handler: onMouseMove as EventListener },
+      { event: 'mouseup', handler: onMouseUp as EventListener },
+    );
   }
 
   private setupTouchTracking(): void {
@@ -242,10 +256,16 @@ export class InputManager {
       handlePointerUp(e);
     };
 
-    this.canvas.addEventListener('pointerdown', handlePointerDown);
-    this.canvas.addEventListener('pointermove', handlePointerMove);
-    this.canvas.addEventListener('pointerup', handlePointerUp);
-    this.canvas.addEventListener('pointercancel', handlePointerCancel);
+    this.canvas.addEventListener('pointerdown', handlePointerDown as EventListener);
+    this.canvas.addEventListener('pointermove', handlePointerMove as EventListener);
+    this.canvas.addEventListener('pointerup', handlePointerUp as EventListener);
+    this.canvas.addEventListener('pointercancel', handlePointerCancel as EventListener);
+    this.canvasListeners.push(
+      { event: 'pointerdown', handler: handlePointerDown as EventListener },
+      { event: 'pointermove', handler: handlePointerMove as EventListener },
+      { event: 'pointerup', handler: handlePointerUp as EventListener },
+      { event: 'pointercancel', handler: handlePointerCancel as EventListener },
+    );
   }
 
   private updateTouchState(): void {

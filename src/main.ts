@@ -39,7 +39,6 @@ async function main() {
 
     // Expose for debugging
     (window as any).app = handle.app;
-    (window as any).appGroup = handle.appGroup;
 
   } catch (error) {
     console.error('Failed to initialize:', error);

@@ -1,7 +1,7 @@
 /**
  * Multi-View Layout Styles
  *
- * Shared styles for split, quad, and inset multi-view layouts.
+ * Shared styles for grid and inset multi-view layouts.
  */
 
 /* Base multi-view container */
@@ -55,47 +55,55 @@
 }
 
 /* =============================================================================
-   Split View Layout (2 views)
+   Grid View Layout (N views, adaptive)
    ============================================================================= */
 
-.layout-split-view {
-  display: flex;
+.layout-grid-view {
+  display: grid;
   gap: 16px;
 }
 
-/* Horizontal split (side by side) - default for wide screens */
-.layout-split-view.split-horizontal {
-  flex-direction: row;
+.layout-grid-view .multi-view-canvas {
+  min-height: 0;
+  min-width: 0;
 }
 
-.layout-split-view.split-horizontal .multi-view-canvas {
-  flex: 1;
-  height: 100%;
+/* 2 views: side-by-side (wide) */
+.layout-grid-view[data-view-count="2"].grid-horizontal {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
 }
 
-/* Vertical split (stacked) - for narrow/tall screens */
-.layout-split-view.split-vertical {
-  flex-direction: column;
+/* 2 views: stacked (narrow) */
+.layout-grid-view[data-view-count="2"].grid-vertical {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr;
 }
 
-.layout-split-view.split-vertical .multi-view-canvas {
-  flex: 1;
-  width: 100%;
-}
-
-/* =============================================================================
-   Quad View Layout (4 views in 2x2 grid)
-   ============================================================================= */
-
-.layout-quad-view {
-  display: grid;
+/* 3 views: 2-column grid, last view spans bottom (wide) */
+.layout-grid-view[data-view-count="3"].grid-horizontal {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  gap: 16px;
 }
 
-.layout-quad-view .multi-view-canvas {
-  min-height: 0; /* Allow shrinking in grid */
+.layout-grid-view[data-view-count="3"].grid-horizontal .multi-view-canvas:last-child {
+  grid-column: 1 / -1;
+}
+
+/* 3 views: 2-column grid, first view spans top (narrow) */
+.layout-grid-view[data-view-count="3"].grid-vertical {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.layout-grid-view[data-view-count="3"].grid-vertical .multi-view-canvas:first-child {
+  grid-column: 1 / -1;
+}
+
+/* 4 views: 2x2 grid (always) */
+.layout-grid-view[data-view-count="4"] {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
 }
 
 /* =============================================================================

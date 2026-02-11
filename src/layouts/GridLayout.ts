@@ -1,21 +1,20 @@
 /**
- * Split View Layout
+ * Grid Layout
  *
- * Displays two shader views side by side (horizontal on wide screens)
- * or stacked (vertical on narrow screens).
+ * Adaptive multi-view layout that arranges N shader views using CSS Grid.
+ * Replaces SplitViewLayout and QuadViewLayout with a single responsive class.
  *
- * Features:
- * - Responsive layout based on container aspect ratio
- * - Gap between views
- * - Shadow and rounded corners on each view
- * - Wrapper element for positioning shared controls
+ * View count behavior:
+ * - 2 views: side-by-side (wide) or stacked (narrow), responsive
+ * - 3 views: 2-column grid, last view spans full width
+ * - 4 views: 2x2 grid
  */
 
 import './multi-view.css';
 
 import { MultiViewLayout, MultiViewLayoutOptions } from './types';
 
-export class SplitViewLayout implements MultiViewLayout {
+export class GridLayout implements MultiViewLayout {
   private container: HTMLElement;
   private wrapper: HTMLElement;
   private canvasContainers: Map<string, HTMLElement> = new Map();
@@ -23,10 +22,12 @@ export class SplitViewLayout implements MultiViewLayout {
 
   constructor(opts: MultiViewLayoutOptions) {
     this.container = opts.container;
+    const n = opts.viewNames.length;
 
     // Create wrapper element (controls attach here)
     this.wrapper = document.createElement('div');
-    this.wrapper.className = 'layout-multi-view layout-split-view';
+    this.wrapper.className = 'layout-multi-view layout-grid-view';
+    this.wrapper.dataset.viewCount = String(n);
 
     // Create canvas container for each view
     for (const viewName of opts.viewNames) {
@@ -47,21 +48,24 @@ export class SplitViewLayout implements MultiViewLayout {
     // Append to DOM
     this.container.appendChild(this.wrapper);
 
-    // Set up responsive layout based on aspect ratio
+    // Responsive layout: switch orientation based on aspect ratio (for 2-3 views)
     this.resizeObserver = new ResizeObserver(entries => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        const isWide = width > height;
-        this.wrapper.classList.toggle('split-horizontal', isWide);
-        this.wrapper.classList.toggle('split-vertical', !isWide);
+        this.updateOrientation(width, height);
       }
     });
     this.resizeObserver.observe(this.wrapper);
 
-    // Initial layout check
+    // Initial orientation
     const rect = this.wrapper.getBoundingClientRect();
-    const isWide = rect.width > rect.height;
-    this.wrapper.classList.add(isWide ? 'split-horizontal' : 'split-vertical');
+    this.updateOrientation(rect.width, rect.height);
+  }
+
+  private updateOrientation(width: number, height: number): void {
+    const isWide = width > height;
+    this.wrapper.classList.toggle('grid-horizontal', isWide);
+    this.wrapper.classList.toggle('grid-vertical', !isWide);
   }
 
   getCanvasContainers(): Map<string, HTMLElement> {

@@ -33,6 +33,7 @@ export class TabbedLayout implements BaseLayout {
   private modifiedSources: Map<string, string> = new Map();
   private tabs: Tab[] = [];
   private activeTabIndex: number = 0;
+  private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(opts: LayoutOptions) {
     this.container = opts.container;
@@ -127,6 +128,10 @@ export class TabbedLayout implements BaseLayout {
   }
 
   dispose(): void {
+    if (this.keydownHandler) {
+      document.removeEventListener('keydown', this.keydownHandler);
+      this.keydownHandler = null;
+    }
     if (this.editorInstance) {
       this.editorInstance.destroy();
       this.editorInstance = null;
@@ -135,7 +140,7 @@ export class TabbedLayout implements BaseLayout {
   }
 
   private setupKeyboardShortcut(): void {
-    document.addEventListener('keydown', (e: KeyboardEvent) => {
+    this.keydownHandler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         const tab = this.tabs[this.activeTabIndex];
         if (tab.kind === 'code') {
@@ -143,7 +148,8 @@ export class TabbedLayout implements BaseLayout {
           this.recompile();
         }
       }
-    });
+    };
+    document.addEventListener('keydown', this.keydownHandler);
   }
 
   private saveCurrentEditorContent(): void {

@@ -43,6 +43,9 @@ export class EditorPanel {
   // Track modified sources (passName -> modified source)
   private modifiedSources: Map<string, string> = new Map();
 
+  // Stored for cleanup in dispose()
+  private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
+
   constructor(container: HTMLElement, project: ShaderProject) {
     this.container = container;
     this.project = project;
@@ -111,6 +114,10 @@ export class EditorPanel {
   }
 
   dispose(): void {
+    if (this.keydownHandler) {
+      this.container.removeEventListener('keydown', this.keydownHandler);
+      this.keydownHandler = null;
+    }
     if (this.editorInstance) {
       this.editorInstance.destroy();
       this.editorInstance = null;
@@ -197,14 +204,14 @@ export class EditorPanel {
       btn.classList.toggle('active', i === index);
     });
 
-    // Clear content area
-    this.contentArea.innerHTML = '';
-
-    // Destroy previous editor instance
+    // Destroy previous editor instance before clearing DOM
     if (this.editorInstance) {
       this.editorInstance.destroy();
       this.editorInstance = null;
     }
+
+    // Clear content area
+    this.contentArea.innerHTML = '';
 
     if (tab.kind === 'code') {
       // Show buttons
@@ -330,11 +337,12 @@ export class EditorPanel {
 
   private setupKeyboardShortcut(): void {
     // Listen for Ctrl+Enter / Cmd+Enter
-    this.container.addEventListener('keydown', (e: KeyboardEvent) => {
+    this.keydownHandler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         this.recompile();
       }
-    });
+    };
+    this.container.addEventListener('keydown', this.keydownHandler);
   }
 }

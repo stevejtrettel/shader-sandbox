@@ -9,6 +9,7 @@ import './split.css';
 
 import { BaseLayout, LayoutOptions, RecompileHandler, UniformChangeHandler } from './types';
 import { ShaderProject } from '../project/types';
+import type { EditorPanel } from '../editor/EditorPanel';
 
 export class SplitLayout implements BaseLayout {
   private container: HTMLElement;
@@ -17,8 +18,9 @@ export class SplitLayout implements BaseLayout {
   private canvasContainer: HTMLElement;
   private codePanel: HTMLElement;
 
-  private editorPanel: any = null;
+  private editorPanel: EditorPanel | null = null;
   private recompileHandler: RecompileHandler | null = null;
+  private _disposed = false;
 
 
   constructor(opts: LayoutOptions) {
@@ -62,6 +64,7 @@ export class SplitLayout implements BaseLayout {
   }
 
   dispose(): void {
+    this._disposed = true;
     if (this.editorPanel) {
       this.editorPanel.dispose();
       this.editorPanel = null;
@@ -75,6 +78,7 @@ export class SplitLayout implements BaseLayout {
   private async buildEditorPanel(): Promise<void> {
     try {
       const { EditorPanel } = await import('../editor/EditorPanel');
+      if (this._disposed) return;
       this.editorPanel = new EditorPanel(this.codePanel, this.project);
       if (this.recompileHandler) {
         this.editorPanel.setRecompileHandler(this.recompileHandler);

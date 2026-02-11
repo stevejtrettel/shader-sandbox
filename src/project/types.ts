@@ -396,7 +396,7 @@ export type ProjectConfig = ShadertoyConfig | StandardConfig;
  * - 'quad': 4 views in 2x2 grid
  * - 'inset': First view fullscreen, second view as minimizable overlay
  */
-export type MultiViewLayoutMode = 'split' | 'quad' | 'inset';
+export type MultiViewLayoutMode = 'split' | 'quad' | 'grid' | 'inset';
 
 /**
  * Multi-view config format.

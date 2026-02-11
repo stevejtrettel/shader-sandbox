@@ -8,6 +8,7 @@
 import {
   UniformValue,
   UniformValues,
+  UniformDefinitions,
   ArrayUniformDefinition,
   isArrayUniform,
 } from '../project/types';
@@ -34,9 +35,9 @@ export class UniformManager {
   private _store: UniformStore;
   private _ubos: UBOEntry[] = [];
   private _dirtyScalars: Set<string> = new Set();
-  private _uniforms: Record<string, any>; // project uniform definitions
+  private _uniforms: UniformDefinitions;
 
-  constructor(gl: WebGL2RenderingContext, uniforms: Record<string, any>) {
+  constructor(gl: WebGL2RenderingContext, uniforms: UniformDefinitions) {
     this._uniforms = uniforms;
     this._store = new UniformStore(uniforms);
     this.initUBOs(gl);
