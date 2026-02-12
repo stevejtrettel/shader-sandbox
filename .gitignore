@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-embed/
 dist-lib/
+dist-runtime/
 build/
 
 # Environment
@@ -14,6 +15,7 @@ build/
 # IDE
 .vscode/
 .idea/
+.luarc.json
 *.swp
 *.swo
 *~
@@ -34,5 +36,3 @@ yarn-error.log*
 
 # Generated files
 src/project/generatedLoader.ts
-
-/.luarc.json

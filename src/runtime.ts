@@ -86,10 +86,58 @@ function createFetchFileLoader(baseUrl: string): FileLoader {
 }
 
 // =============================================================================
+// Single-file FileLoader (for bare .glsl URLs)
+// =============================================================================
+
+function createSingleFileLoader(glslContent: string): FileLoader {
+  return {
+    async exists(path: string): Promise<boolean> {
+      const name = path.replace(/^\.\//, '');
+      return name === 'image.glsl';
+    },
+    async readText(path: string): Promise<string> {
+      const name = path.replace(/^\.\//, '');
+      if (name === 'image.glsl') return glslContent;
+      throw new Error(`File not found: ${path}`);
+    },
+    async resolveImageUrl(path: string): Promise<string> {
+      return path;
+    },
+    async listGlslFiles(): Promise<string[]> {
+      return [];
+    },
+    async hasFiles(): Promise<boolean> {
+      return false;
+    },
+    joinPath(...parts: string[]): string {
+      return parts
+        .map((p, i) => (i === 0 ? p : p.replace(/^\/+/, '')))
+        .join('/')
+        .replace(/\/+/g, '/');
+    },
+    baseName(path: string): string {
+      return path.split('/').pop() || path;
+    },
+  };
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/** Resolve a path (absolute or relative) to a full URL using the document base. */
+function toAbsoluteUrl(path: string): string {
+  return new URL(path, document.baseURI).href;
+}
+
+// =============================================================================
 // Script Loading
 // =============================================================================
 
-async function loadScript(baseUrl: string): Promise<DemoScriptHooks | null> {
+async function loadScript(loader: FileLoader, baseUrl: string): Promise<DemoScriptHooks | null> {
+  // Check existence via fetch first — avoids noisy import() 404 errors in the console
+  if (!(await loader.exists('script.js'))) return null;
+
   try {
     const scriptUrl = new URL('script.js', baseUrl).href;
     const mod = await import(/* @vite-ignore */ scriptUrl);
@@ -98,7 +146,7 @@ async function loadScript(baseUrl: string): Promise<DemoScriptHooks | null> {
     if (typeof mod.onFrame === 'function') hooks.onFrame = mod.onFrame;
     return (hooks.setup || hooks.onFrame) ? hooks : null;
   } catch {
-    return null; // No script.js or import failed — that's fine
+    return null; // import failed — that's fine
   }
 }
 
@@ -116,34 +164,43 @@ export interface RuntimeMountOptions {
 }
 
 /**
- * Load a shader project from a folder URL and mount it into a DOM element.
+ * Load a shader project from a folder URL (or bare .glsl URL) and mount it
+ * into a DOM element.
  *
  * @param el - Target DOM element
- * @param folderUrl - URL to the shader folder (e.g. "/shaders/mandelbrot/")
+ * @param url - URL to a shader folder ("/shaders/mandelbrot/") or bare file ("/shaders/test.glsl")
  * @param options - Presentation options
  */
 export async function loadFromFolder(
   el: HTMLElement,
-  folderUrl: string,
+  url: string,
   options?: RuntimeMountOptions,
 ): Promise<MountHandle> {
-  // Ensure trailing slash for URL resolution
-  const baseUrl = folderUrl.endsWith('/') ? folderUrl : folderUrl + '/';
+  let project;
 
-  const loader = createFetchFileLoader(baseUrl);
+  if (url.endsWith('.glsl')) {
+    // Bare .glsl file — fetch it and treat as a single-pass shader
+    const absoluteUrl = toAbsoluteUrl(url);
+    const response = await fetch(absoluteUrl);
+    if (!response.ok) throw new Error(`Failed to fetch shader: ${url}`);
+    const glslContent = await response.text();
 
-  // Load script.js (may not exist — that's ok)
-  const script = await loadScript(baseUrl);
+    const loader = createSingleFileLoader(glslContent);
+    project = await loadProjectFromFiles(loader, '.', {});
+  } else {
+    // Folder — resolve to absolute URL so new URL() works downstream
+    const baseUrl = toAbsoluteUrl(url.endsWith('/') ? url : url + '/');
+    const loader = createFetchFileLoader(baseUrl);
+    const script = await loadScript(loader, baseUrl);
+    const textureUrlResolver = async (path: string): Promise<string> => {
+      return new URL(path, baseUrl).href;
+    };
 
-  // Texture URLs resolve directly against the folder
-  const textureUrlResolver = async (path: string): Promise<string> => {
-    return new URL(path, baseUrl).href;
-  };
-
-  const project = await loadProjectFromFiles(loader, '.', {
-    script,
-    textureUrlResolver,
-  });
+    project = await loadProjectFromFiles(loader, '.', {
+      script,
+      textureUrlResolver,
+    });
+  }
 
   return coreMount(el, {
     project,

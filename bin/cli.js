@@ -121,7 +121,7 @@ function listShaders(cwd) {
     console.error('Error: shaders/ directory not found');
     console.error('');
     console.error('To get started:');
-    console.error('  npx @stevejtrettel/shader-sandbox create .');
+    console.error('  npx shader-sandbox create .');
     process.exit(1);
   }
 
@@ -147,8 +147,8 @@ async function create(projectName) {
   // Validate name (allow "." for current directory)
   if (!projectName) {
     console.error('Error: Specify a project name or use "." for current directory');
-    console.error('  npx @stevejtrettel/shader-sandbox create my-shaders');
-    console.error('  npx @stevejtrettel/shader-sandbox create .');
+    console.error('  npx shader-sandbox create my-shaders');
+    console.error('  npx shader-sandbox create .');
     process.exit(1);
   }
 
@@ -191,7 +191,7 @@ async function create(projectName) {
     // Add dependencies to existing package.json
     const existingPackage = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
     existingPackage.dependencies = existingPackage.dependencies || {};
-    existingPackage.dependencies['@stevejtrettel/shader-sandbox'] = PACKAGE_VERSION;
+    existingPackage.dependencies['shader-sandbox'] = PACKAGE_VERSION;
     existingPackage.dependencies['vite'] = '^5.0.0';
     existingPackage.dependencies['vite-plugin-css-injected-by-js'] = '^3.5.0';
     fs.writeFileSync(packageJsonPath, JSON.stringify(existingPackage, null, 2) + '\n');
@@ -207,7 +207,7 @@ async function create(projectName) {
         list: 'shader list'
       },
       dependencies: {
-        '@stevejtrettel/shader-sandbox': PACKAGE_VERSION,
+        'shader-sandbox': PACKAGE_VERSION,
         'vite': '^5.0.0',
         'vite-plugin-css-injected-by-js': '^3.5.0'
       }
@@ -276,7 +276,7 @@ function createNewShader(name, template) {
   // Check shaders directory exists
   if (!fs.existsSync(shadersDir)) {
     console.error('Error: shaders/ directory not found');
-    console.error('Run "npx @stevejtrettel/shader-sandbox create ." first');
+    console.error('Run "npx shader-sandbox create ." first');
     process.exit(1);
   }
 
@@ -397,6 +397,12 @@ function resolveShaderPath(cwd, shaderName) {
  */
 function buildShader(shaderName, cwd) {
   return new Promise((resolve, reject) => {
+    // Validate name before interpolating into JS code and glob patterns
+    if (!/^[a-zA-Z0-9_-]+$/.test(shaderName)) {
+      reject(new Error(`Invalid shader name "${shaderName}" — use only letters, numbers, hyphens, and underscores`));
+      return;
+    }
+
     const resolved = resolveShaderPath(cwd, shaderName);
     if (!resolved) {
       reject(new Error(`Shader "${shaderName}" not found`));
@@ -408,7 +414,7 @@ function buildShader(shaderName, cwd) {
     // Generate a shader-specific build entry that exports mount().
     const buildEntryPath = path.join(cwd, '_build-entry.js');
     const buildEntryCode = `
-import { mount as _mount, loadDemo } from '@stevejtrettel/shader-sandbox';
+import { mount as _mount, loadDemo } from 'shader-sandbox';
 
 const glslFiles = import.meta.glob('./shaders/${shaderName}/**/*.glsl', { query: '?raw', import: 'default' });
 const jsonFiles = import.meta.glob('./shaders/${shaderName}/*.json', { import: 'default' });
@@ -502,19 +508,21 @@ export async function mount(el, options = {}) {
   });
 }
 
-function runVite(viteArgs, shaderName) {
+function runVite(viteArgs, shaderName, cleanup = null) {
   const cwd = process.cwd();
 
   // Check for vite.config.js
   if (!fs.existsSync(path.join(cwd, 'vite.config.js'))) {
+    if (cleanup) cleanup();
     console.error('Error: vite.config.js not found');
-    console.error('Run "npx @stevejtrettel/shader-sandbox create ." first');
+    console.error('Run "npx shader-sandbox create ." first');
     process.exit(1);
   }
 
   // Find vite binary
   const viteBin = findViteBin(cwd);
   if (!viteBin) {
+    if (cleanup) cleanup();
     console.error('Error: vite not found in node_modules');
     console.error('Run "npm install" first');
     process.exit(1);
@@ -529,12 +537,21 @@ function runVite(viteArgs, shaderName) {
     env
   });
 
+  function onExit() {
+    if (cleanup) cleanup();
+  }
+
+  process.on('SIGINT', () => { onExit(); process.exit(); });
+  process.on('SIGTERM', () => { onExit(); process.exit(); });
+
   child.on('error', (err) => {
+    onExit();
     console.error('Failed to start vite:', err.message);
     process.exit(1);
   });
 
   child.on('close', (code) => {
+    onExit();
     process.exit(code || 0);
   });
 }
@@ -545,8 +562,8 @@ switch (command) {
     const name = args[1];
     if (!name) {
       console.error('Error: Specify a project name or use "." for current directory');
-      console.error('  npx @stevejtrettel/shader-sandbox create my-shaders');
-      console.error('  npx @stevejtrettel/shader-sandbox create .');
+      console.error('  npx shader-sandbox create my-shaders');
+      console.error('  npx shader-sandbox create .');
       process.exit(1);
     }
     create(name).catch(err => {
@@ -581,7 +598,7 @@ switch (command) {
         console.error('Error: shaders/ directory not found');
         console.error('');
         console.error('To get started:');
-        console.error('  npx @stevejtrettel/shader-sandbox create .');
+        console.error('  npx shader-sandbox create .');
         process.exit(1);
       }
 
@@ -599,8 +616,7 @@ switch (command) {
       break;
     }
 
-    const shaderPath = path.join(cwd, 'shaders', shaderName);
-    if (!fs.existsSync(shaderPath)) {
+    if (!shaderExists(cwd, shaderName)) {
       const shaders = getShaderList(cwd);
 
       console.error(`Error: Shader "${shaderName}" not found`);
@@ -625,8 +641,11 @@ switch (command) {
       process.exit(1);
     }
 
+    // Resolve bare .glsl files to a folder (creates a temp wrapper if needed)
+    const resolved = resolveShaderPath(cwd, shaderName);
+
     console.log(`Starting dev server for "${shaderName}"...`);
-    runVite([], shaderName);
+    runVite([], shaderName, resolved?.cleanup);
     break;
   }
 

@@ -6,7 +6,7 @@ A local GLSL shader development environment with custom uniforms, named buffers,
 
 ```bash
 # Create a new project
-npx @stevejtrettel/shader-sandbox@latest create my-shaders
+npx shader-sandbox@latest create my-shaders
 cd my-shaders
 npx shader dev simple
 ```
@@ -14,7 +14,7 @@ npx shader dev simple
 Or initialize in an existing folder:
 ```bash
 cd my-existing-project
-npx @stevejtrettel/shader-sandbox@latest create .
+npx shader-sandbox@latest create .
 npx shader dev simple
 ```
 
@@ -25,7 +25,7 @@ Open http://localhost:3000 to see your shader running.
 Install globally to skip the `npx` prefix:
 
 ```bash
-npm install -g @stevejtrettel/shader-sandbox
+npm install -g shader-sandbox
 
 shader create my-shaders    # or: shader create .
 shader dev simple
@@ -514,18 +514,70 @@ Both approaches support all the same shader features (buffers, uniforms, texture
 
 ## Quarto Integration
 
-Shader Sandbox can be used with [Quarto](https://quarto.org) websites via a custom shortcode extension and pre-render build script. Shaders live in `shaders/` directories alongside your `.qmd` files and are automatically compiled during `quarto render`.
+Embed shaders in [Quarto](https://quarto.org) websites using the runtime loader and a Lua shortcode extension. No build step per shader — just drop `.glsl` files alongside your `.qmd` files and reference them by name.
 
-Integration requires a Lua shortcode extension, a build script that walks the project tree for `shaders/` directories, and a `vite.config.js` (copy from `templates/vite.config.js` in this package). The shortcode resolves shader paths relative to the current document's directory, so `{{< shader sdf-basics >}}` in `3d/raymarching/notes.qmd` loads `dist/3d/raymarching/sdf-basics/main.js`.
+### Setup
 
-Mount options (`controls`, `theme`, etc.) can be passed as shortcode attributes.
+1. Copy the extension into your Quarto project:
+
+```
+my-quarto-site/
+├── _extensions/shader-sandbox/
+│   ├── _extension.yml
+│   ├── shader-sandbox.lua
+│   └── shader-sandbox.js      ← copy from dist-runtime/
+├── shaders/
+│   ├── mandelbrot/
+│   │   └── image.glsl
+│   └── julia/
+│       ├── image.glsl
+│       ├── bufferA.glsl
+│       └── config.json
+├── index.qmd
+└── _quarto.yml
+```
+
+The extension files are provided in `templates/quarto/_extensions/shader-sandbox/` in this package. Copy `dist-runtime/shader-sandbox.js` into the same folder.
+
+Shortcode extensions are automatically available once in `_extensions/` — no `_quarto.yml` changes needed.
+
+### Usage
+
+Use the `{{< shader-sandbox >}}` shortcode in any `.qmd` file:
+
+```markdown
+{{< shader-sandbox mandelbrot >}}
+
+{{< shader-sandbox julia controls="false" theme="dark" >}}
+
+{{< shader-sandbox /custom/path/to/shader >}}
+```
+
+A bare name like `mandelbrot` resolves to `/shaders/mandelbrot/`. Paths starting with `/` are used as-is.
+
+Mount options are passed as shortcode attributes — the same ones supported by the `<shader-sandbox>` element (`controls`, `theme`, `start-paused`, `layout`, `pixel-ratio`, etc.).
+
+The `shader-sandbox.js` script is only included on pages that actually use the shortcode — no extra weight on pages that don't have shaders.
+
+### Shader Folders
+
+Place your shader folders in a `shaders/` directory at your site root. Quarto copies them to `_site/` as-is during render. Each folder follows the same structure as `shader dev`:
+
+```
+shaders/mandelbrot/
+├── image.glsl         # Required
+├── config.json        # Optional
+├── common.glsl        # Optional
+├── bufferA.glsl       # Optional
+└── script.js          # Optional
+```
 
 ## Using as a Library
 
 The package exports its core classes for use in custom applications:
 
 ```typescript
-import { mount, App, createLayout, loadDemo } from '@stevejtrettel/shader-sandbox';
+import { mount, App, createLayout, loadDemo } from 'shader-sandbox';
 ```
 
 | Export | Description |
@@ -538,7 +590,7 @@ import { mount, App, createLayout, loadDemo } from '@stevejtrettel/shader-sandbo
 ### Example
 
 ```typescript
-import { mount } from '@stevejtrettel/shader-sandbox';
+import { mount } from 'shader-sandbox';
 
 const project = /* your ShaderProject */;
 

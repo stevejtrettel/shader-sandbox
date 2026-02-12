@@ -40,7 +40,7 @@ export type {
 } from './layouts/types';
 
 const BROWSER_ONLY_ERROR =
-  "This API is browser-only. Import '@stevejtrettel/shader-sandbox' in your browser bundle, not in Node runtime.";
+  "This API is browser-only. Import 'shader-sandbox' in your browser bundle, not in Node runtime.";
 
 export function mount(_el: HTMLElement, _options: MountOptions): MountHandle {
   throw new Error(BROWSER_ONLY_ERROR);

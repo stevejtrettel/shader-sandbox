@@ -10,10 +10,10 @@
 import {
   mount,
   loadDemo,
-} from '@stevejtrettel/shader-sandbox';
+} from 'shader-sandbox';
 import type {
   ProjectConfig,
-} from '@stevejtrettel/shader-sandbox';
+} from 'shader-sandbox';
 
 // Get shader name from env (set by dev script) or URL param
 function getShaderName(): string {

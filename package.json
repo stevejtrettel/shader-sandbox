@@ -1,6 +1,6 @@
 {
-  "name": "@stevejtrettel/shader-sandbox",
-  "version": "0.1.11",
+  "name": "shader-sandbox",
+  "version": "0.1.0",
   "description": "Local Shadertoy-compatible GLSL shader development environment with live editing",
   "author": "Steve Trettel",
   "license": "MIT",
@@ -53,7 +53,7 @@
     "build": "tsc && vite build",
     "build:lib": "node scripts/build-lib.cjs",
     "build:runtime": "vite build --config vite.config.runtime.ts",
-    "prepublishOnly": "npm run build:lib",
+    "prepublishOnly": "npm run build:lib && npm run build:runtime",
     "preview": "vite preview"
   },
   "dependencies": {
