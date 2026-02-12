@@ -76,11 +76,13 @@ export class InputManager {
   // Store bound handlers for cleanup
   private keydownHandler: (e: KeyboardEvent) => void;
   private keyupHandler: (e: KeyboardEvent) => void;
+  private keyboardTarget: HTMLElement | Document;
   private canvasListeners: Array<{ event: string; handler: EventListener }> = [];
 
-  constructor(canvas: HTMLCanvasElement, pixelRatio: number) {
+  constructor(canvas: HTMLCanvasElement, pixelRatio: number, keyboardTarget?: HTMLElement) {
     this.canvas = canvas;
     this.pixelRatio = pixelRatio;
+    this.keyboardTarget = keyboardTarget ?? document;
 
     this.setupMouseTracking();
     this.setupTouchTracking();
@@ -98,8 +100,8 @@ export class InputManager {
         this.keyEvents.push({ keycode, down: false });
       }
     };
-    document.addEventListener('keydown', this.keydownHandler);
-    document.addEventListener('keyup', this.keyupHandler);
+    this.keyboardTarget.addEventListener('keydown', this.keydownHandler as EventListener);
+    this.keyboardTarget.addEventListener('keyup', this.keyupHandler as EventListener);
   }
 
   /**
@@ -115,8 +117,8 @@ export class InputManager {
    * Clean up all event listeners.
    */
   dispose(): void {
-    document.removeEventListener('keydown', this.keydownHandler);
-    document.removeEventListener('keyup', this.keyupHandler);
+    this.keyboardTarget.removeEventListener('keydown', this.keydownHandler as EventListener);
+    this.keyboardTarget.removeEventListener('keyup', this.keyupHandler as EventListener);
     for (const { event, handler } of this.canvasListeners) {
       this.canvas.removeEventListener(event, handler);
     }

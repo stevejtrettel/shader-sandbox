@@ -83,6 +83,14 @@ export class App {
     this.project = opts.project;
     this.isMultiView = isMultiViewProject(opts.project);
 
+    // Make container focusable for scoped keyboard events.
+    // tabindex="-1" allows programmatic focus but keeps it out of tab order.
+    if (!this.container.hasAttribute('tabindex')) {
+      this.container.setAttribute('tabindex', '-1');
+    }
+    this.container.style.outline = 'none';
+    this.container.addEventListener('mousedown', () => this.container.focus());
+
     const pixelRatio = opts.pixelRatio ?? opts.project.pixelRatio ?? window.devicePixelRatio;
 
     // =========================================================================
@@ -107,6 +115,7 @@ export class App {
         const view = new ShaderView({
           container: viewContainer,
           project: viewProject,
+          keyboardTarget: this.container,
           pixelRatio,
           viewNames,
         });
@@ -119,6 +128,7 @@ export class App {
       const view = new ShaderView({
         container: opts.container,
         project: opts.project as ShaderProject,
+        keyboardTarget: this.container,
         pixelRatio,
       });
 
@@ -700,7 +710,7 @@ export class App {
         this.screenshot();
       }
     };
-    document.addEventListener('keydown', this.globalKeyHandler);
+    this.container.addEventListener('keydown', this.globalKeyHandler);
   }
 
   private setupKeyboardShortcuts(): void {
@@ -717,7 +727,7 @@ export class App {
         this.reset();
       }
     };
-    document.addEventListener('keydown', this.controlsKeyHandler);
+    this.container.addEventListener('keydown', this.controlsKeyHandler);
   }
 
   // ===========================================================================
@@ -733,8 +743,8 @@ export class App {
     this.recorder.dispose();
     this.playbackControls?.dispose();
     this.intersectionObserver.disconnect();
-    if (this.globalKeyHandler) document.removeEventListener('keydown', this.globalKeyHandler);
-    if (this.controlsKeyHandler) document.removeEventListener('keydown', this.controlsKeyHandler);
+    if (this.globalKeyHandler) this.container.removeEventListener('keydown', this.globalKeyHandler);
+    if (this.controlsKeyHandler) this.container.removeEventListener('keydown', this.controlsKeyHandler);
     this.uniformsPanel?.destroy();
     this.statsPanel.dispose();
   }

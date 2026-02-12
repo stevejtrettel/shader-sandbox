@@ -3,61 +3,47 @@
  *
  * This is the entry point for compiled shader modules.
  * Exports:
- *   - mountDemo(el, options?) — simple consumer API (auto-loads baked-in project)
- *   - embed(options)          — backward-compatible wrapper
- *   - DEMO_NAME               — name of the baked-in demo
+ *   - mount(el, options?) — consumer API (auto-loads baked-in project)
+ *   - DEMO_NAME           — name of the baked-in demo
  */
 
-import { mount, MountHandle } from './mount';
+import { mount as coreMount, MountHandle } from './mount';
 import { loadDemoProject, DEMO_NAME } from './project/generatedLoader';
+import type { LayoutMode } from './layouts/types';
+import type { ThemeMode } from './project/types';
 
-// ---------- New API ----------
-
-export interface MountDemoOptions {
-  styled?: boolean;       // default true
-  pixelRatio?: number;    // default devicePixelRatio
+export interface MountOptions {
+  /** Add pane decoration (border-radius, box-shadow). Default: true. */
+  styled?: boolean;
+  /** Canvas pixel ratio. Default: window.devicePixelRatio. */
+  pixelRatio?: number;
+  /** Override the layout mode from config. */
+  layout?: LayoutMode;
+  /** Override whether playback controls are shown. */
+  controls?: boolean;
+  /** Override the color theme. */
+  theme?: ThemeMode;
+  /** Override whether the shader starts paused. */
+  startPaused?: boolean;
 }
 
 /**
  * Mount the baked-in shader project into a DOM element.
  * This is the primary consumer-facing API for build output.
  */
-export async function mountDemo(
+export async function mount(
   el: HTMLElement,
-  options?: MountDemoOptions,
+  options?: MountOptions,
 ): Promise<MountHandle> {
   const project = await loadDemoProject();
-  return mount(el, {
+  return coreMount(el, {
     project,
     styled: options?.styled ?? true,
     pixelRatio: options?.pixelRatio,
-  });
-}
-
-// ---------- Backward-compatible API ----------
-
-export interface EmbedOptions {
-  container: HTMLElement | string;
-  pixelRatio?: number;
-}
-
-/**
- * @deprecated Use mountDemo() instead.
- */
-export async function embed(options: EmbedOptions): Promise<MountHandle> {
-  const container = typeof options.container === 'string'
-    ? document.querySelector(options.container)
-    : options.container;
-
-  if (!container || !(container instanceof HTMLElement)) {
-    throw new Error(`Container not found: ${options.container}`);
-  }
-
-  const project = await loadDemoProject();
-  return mount(container, {
-    project,
-    styled: false,
-    pixelRatio: options.pixelRatio,
+    layout: options?.layout,
+    controls: options?.controls,
+    theme: options?.theme,
+    startPaused: options?.startPaused,
   });
 }
 

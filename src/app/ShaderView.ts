@@ -28,6 +28,8 @@ export interface ShaderViewOptions {
   project: ShaderProject;
   pixelRatio: number;
   viewNames?: string[];
+  /** Element to listen for keyboard events on. Defaults to document. */
+  keyboardTarget?: HTMLElement;
 }
 
 export class ShaderView {
@@ -143,7 +145,7 @@ export class ShaderView {
     this._resizeObserver.observe(this.container);
 
     // Input tracking
-    this.input = new InputManager(this.canvas, this._pixelRatio);
+    this.input = new InputManager(this.canvas, this._pixelRatio, opts.keyboardTarget);
     this.input.onFirstGesture = () => this.initMediaOnGesture();
 
     // Initialize video files (muted, no gesture needed)

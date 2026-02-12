@@ -31,6 +31,10 @@
       "import": "./dist-lib/node.js",
       "types": "./dist-lib/node.d.ts",
       "default": "./dist-lib/node.js"
+    },
+    "./runtime": {
+      "import": "./dist-runtime/shader-sandbox.js",
+      "default": "./dist-runtime/shader-sandbox.js"
     }
   },
   "bin": {
@@ -39,6 +43,7 @@
   "files": [
     "bin",
     "dist-lib",
+    "dist-runtime",
     "templates"
   ],
   "scripts": {
@@ -47,6 +52,7 @@
     "dev:demo": "node scripts/dev-demo.cjs",
     "build": "tsc && vite build",
     "build:lib": "node scripts/build-lib.cjs",
+    "build:runtime": "vite build --config vite.config.runtime.ts",
     "prepublishOnly": "npm run build:lib",
     "preview": "vite preview"
   },

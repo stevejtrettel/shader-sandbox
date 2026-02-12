@@ -51,6 +51,7 @@ shader create .          # Initialize in current folder
 shader dev <name>        # Run shader with live reload
 shader build <name>      # Build a single shader for production
 shader build-all         # Build all shaders in shaders/
+shader build-runtime     # Copy the runtime loader to dist/
 shader new <name>        # Create a new shader from template
 shader list              # List all shaders
 shader build-gallery     # Build a static gallery index page
@@ -327,9 +328,13 @@ Set `"layout"` in config.json:
 | **S** | Screenshot (PNG) |
 | **R** | Reset to frame 0 |
 
+Keyboard shortcuts are scoped to the focused shader — click a shader to give it focus, then use the shortcuts. This allows multiple shaders on the same page without interference.
+
 Set `"controls": true` in config to show on-screen buttons for play/pause, reset, screenshot, record, and export. A stats panel displays FPS, elapsed time, frame count, and canvas resolution.
 
 ## Configuration Options
+
+These are set in `config.json` for each shader. The presentation options (`layout`, `theme`, `controls`, `startPaused`, `pixelRatio`) can also be overridden at mount time — see [Mount Options](#mount-options).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -375,127 +380,145 @@ The `main.js` module exports `mount()` which can be used programmatically:
 <script type="module">
   import { mount } from './dist/my-shader/main.js';
   mount(document.getElementById('shader'));
+
+  // Override presentation settings from config.json:
+  mount(document.getElementById('shader'), {
+    controls: false,
+    theme: 'dark',
+    startPaused: true,
+  });
 </script>
 ```
 
 ### `<live-app>` Custom Element
 
-For embedding on websites, include the `live-app.js` script and use the `<live-app>` element:
+A generic web component for embedding any module that exports `mount(el, options?)`. Works with shader-sandbox, three.js apps, or any other visual module.
 
 ```html
 <script type="module" src="/js/live-app.js"></script>
+
+<!-- Basic usage -->
 <live-app src="/shaders/my-shader/main.js" style="width:100%;height:400px;display:block;"></live-app>
+
+<!-- With options passed as attributes -->
+<live-app src="/shaders/my-shader/main.js" controls="false" theme="dark" start-paused="true"></live-app>
+
+<!-- Fullpage mode -->
+<live-app src="/shaders/my-shader/main.js" fullpage></live-app>
 ```
 
-Attributes:
-- `src` — path to the built shader module (`main.js`)
-- `styled` — set to `"true"` to enable pane decoration (default: `false`)
-- `fullpage` — fill the entire viewport
+Reserved attributes (control the component itself):
 
-### Decoration Control
+| Attribute | Description |
+|-----------|-------------|
+| `src` | Path to the module (must export `mount`) |
+| `fullpage` | Fill the viewport (`position:fixed`, 100vw x 100vh) |
+| `lazy` | `"false"` to disable lazy loading (default: lazy-loads on scroll) |
 
-Built shaders include decoration (rounded corners, box shadows) by default. Control this via the `styled` option:
+All other attributes are passed as options to the module's `mount()` function. Attribute names are converted from kebab-case to camelCase, and values are type-coerced (`"true"`/`"false"` → boolean, numeric strings → number):
+
+```html
+<live-app src="./main.js"
+  controls="false"       <!-- { controls: false } -->
+  theme="dark"           <!-- { theme: 'dark' } -->
+  start-paused="true"    <!-- { startPaused: true } -->
+  pixel-ratio="2"        <!-- { pixelRatio: 2 } -->
+></live-app>
+```
+
+**Lazy loading:** By default, `<live-app>` uses an IntersectionObserver to mount shaders only when they scroll into view, and unmount them (destroying the WebGL context) when they scroll away. This keeps a page with many shaders within browser WebGL context limits (~8-16). Set `lazy="false"` to disable this and mount immediately.
+
+**Module contract:** The imported module must export `mount(el, options?) → { destroy() }` (or a Promise that resolves to one). This matches the build output of shader-sandbox, but also works with any module that follows the same contract.
+
+### Mount Options
+
+Built shaders accept options to override presentation settings from `config.json` at mount time:
 
 ```js
-// With decoration (default)
-mount(el);
-
-// Without decoration (flat, for custom styling)
-mount(el, { styled: false });
+mount(el, {
+  styled: false,       // remove pane decoration (border-radius, box-shadow)
+  pixelRatio: 1,       // override canvas pixel ratio
+  layout: 'fullscreen', // override layout mode
+  controls: false,     // hide playback controls
+  theme: 'dark',       // override color theme ('light', 'dark', 'system')
+  startPaused: true,   // start with animation paused
+});
 ```
 
-Decoration is controlled via CSS custom properties (`--pane-radius`, `--pane-shadow`) which you can override on the container element.
+All options are optional — omitted fields use whatever the shader's `config.json` specifies.
+
+Pane decoration is controlled via CSS custom properties (`--pane-radius`, `--pane-shadow`) which you can override on the container element.
+
+## Runtime Loader (No Build Step)
+
+For prototyping, static sites, or Quarto — where you just want to drop `.glsl` files on a server without running a build — use the runtime loader. It fetches shader files directly over HTTP.
+
+```bash
+shader build-runtime    # Copy shader-sandbox.js to dist/
+```
+
+Then point the `<shader-sandbox>` element at a folder of shader files:
+
+```html
+<script type="module" src="/js/shader-sandbox.js"></script>
+
+<shader-sandbox src="/shaders/mandelbrot/" style="width:100%;height:400px;display:block;"></shader-sandbox>
+<shader-sandbox src="/shaders/julia/" controls="false" theme="dark"></shader-sandbox>
+```
+
+The folder just needs raw shader files — the same ones you'd use with `shader dev`:
+
+```
+shaders/mandelbrot/
+├── image.glsl         # Required
+├── config.json        # Optional (buffers, uniforms, textures, etc.)
+├── common.glsl        # Optional
+├── bufferA.glsl       # Optional (if declared in config)
+└── script.js          # Optional (ES module with setup/onFrame hooks)
+```
+
+For the simplest case (a single shader with no config), just `image.glsl` is enough.
+
+### `<shader-sandbox>` Attributes
+
+The `<shader-sandbox>` element works just like `<live-app>` — all non-reserved attributes are passed as mount options:
+
+```html
+<shader-sandbox src="/shaders/my-shader/"
+  controls="false"
+  theme="dark"
+  start-paused="true"
+  layout="fullscreen"
+></shader-sandbox>
+```
+
+| Attribute | Description |
+|-----------|-------------|
+| `src` | Path to the shader folder (must end with `/` or have no `.js` extension) |
+| `fullpage` | Fill the viewport |
+| `lazy` | `"false"` to disable lazy loading (default: lazy-loads on scroll) |
+
+Lazy loading works the same as `<live-app>` — shaders mount when they scroll into view and unmount when they scroll away, keeping WebGL context usage within browser limits.
+
+### Runtime Loader vs Build
+
+| | Build (`shader build`) | Runtime (`<shader-sandbox>`) |
+|---|---|---|
+| Setup | Run build per shader | Drop files on server |
+| HTTP requests | 1 bundled JS file | N fetches (config + glsl + textures) |
+| First paint | Faster (pre-bundled) | Slightly slower (sequential fetch) |
+| Dependencies | Needs Vite + Node | None — static file server only |
+| Best for | Production sites | Prototyping, Quarto, static sites |
+
+Both approaches support all the same shader features (buffers, uniforms, textures, scripts, etc.) and the same mount options.
 
 ## Quarto Integration
 
-Shader Sandbox includes a Quarto shortcode extension for embedding shaders in [Quarto](https://quarto.org) websites. Shaders are automatically compiled during `quarto render` and mounted into the page.
+Shader Sandbox can be used with [Quarto](https://quarto.org) websites via a custom shortcode extension and pre-render build script. Shaders live in `shaders/` directories alongside your `.qmd` files and are automatically compiled during `quarto render`.
 
-Shaders live in `shaders/` directories alongside your `.qmd` files — place them wherever makes sense for your project structure.
+Integration requires a Lua shortcode extension, a build script that walks the project tree for `shaders/` directories, and a `vite.config.js` (copy from `templates/vite.config.js` in this package). The shortcode resolves shader paths relative to the current document's directory, so `{{< shader sdf-basics >}}` in `3d/raymarching/notes.qmd` loads `dist/3d/raymarching/sdf-basics/main.js`.
 
-### Setup
-
-1. Install the package in your Quarto project:
-
-```bash
-npm install @stevejtrettel/shader-sandbox
-```
-
-2. Copy the extension and build config into your project. The files are in the installed package at `node_modules/@stevejtrettel/shader-sandbox/templates/`:
-
-```bash
-# Quarto shortcode extension
-cp -r node_modules/@stevejtrettel/shader-sandbox/templates/quarto/_extensions/ _extensions/
-
-# Build script + pre-render hook
-cp node_modules/@stevejtrettel/shader-sandbox/templates/quarto/build-shaders.mjs build-shaders.mjs
-cp node_modules/@stevejtrettel/shader-sandbox/templates/quarto/pre-render.sh pre-render.sh
-chmod +x pre-render.sh
-
-# Vite config (needed for building shaders)
-cp node_modules/@stevejtrettel/shader-sandbox/templates/vite.config.js vite.config.js
-```
-
-3. Add to your `_quarto.yml`:
-
-```yaml
-project:
-  type: website
-  pre-render: pre-render.sh
-  resources:
-    - dist/**
-```
-
-4. Add `shaders/` directories alongside your content. They can be at any depth:
-
-```
-my-quarto-site/
-├── _quarto.yml
-├── _extensions/shader-sandbox/
-├── build-shaders.mjs
-├── pre-render.sh
-├── vite.config.js
-├── package.json
-├── index.qmd
-├── 3d/
-│   └── raymarching/
-│       ├── notes.qmd
-│       ├── homework.qmd
-│       └── shaders/
-│           ├── sdf-basics.glsl
-│           └── soft-shadows/
-│               ├── image.glsl
-│               └── config.json
-└── intro/
-    ├── notes.qmd
-    └── shaders/
-        └── hello.glsl
-```
-
-The build script walks the entire project tree for `shaders/` directories and compiles each shader to `dist/<parent-path>/<shader-name>/`:
-
-```
-dist/3d/raymarching/sdf-basics/main.js
-dist/3d/raymarching/soft-shadows/main.js
-dist/intro/hello/main.js
-```
-
-### Usage
-
-Use the `{{< shader >}}` shortcode in any `.qmd` file:
-
-```markdown
-{{< shader sdf-basics >}}
-
-{{< shader soft-shadows height=600px >}}
-```
-
-The shortcode resolves the shader name relative to the current document's directory. So `{{< shader sdf-basics >}}` in `3d/raymarching/notes.qmd` loads `dist/3d/raymarching/sdf-basics/main.js`.
-
-The shortcode accepts:
-- **First argument** — shader name (matches filename without `.glsl` or folder name in the nearest `shaders/` directory)
-- **`height`** — container height (default: `400px`)
-
-When you run `quarto render`, the pre-render script automatically builds all shaders, and the shortcode emits the HTML to load and mount each one.
+Mount options (`controls`, `theme`, etc.) can be passed as shortcode attributes.
 
 ## Using as a Library
 
@@ -510,7 +533,6 @@ import { mount, App, createLayout, loadDemo } from '@stevejtrettel/shader-sandbo
 | `mount(el, options)` | Core API — mount a project into a DOM element |
 | `App` | Main application — canvas, engine, and animation loop |
 | `createLayout(mode, options)` | Layout factory |
-| `applyTheme(mode)` | Apply light, dark, or system theme |
 | `loadDemo(files)` | Load a shader project from bundled file data |
 
 ### Example
@@ -520,11 +542,25 @@ import { mount } from '@stevejtrettel/shader-sandbox';
 
 const project = /* your ShaderProject */;
 
-const handle = await mount(document.getElementById('shader-container'), {
+const handle = mount(document.getElementById('shader-container'), {
   project,
-  styled: true,      // enable pane decoration (default)
-  pixelRatio: 2,     // optional
+  styled: true,        // pane decoration (default: true)
+  pixelRatio: 2,       // canvas resolution multiplier
+  layout: 'fullscreen', // override layout from config
+  controls: false,     // hide playback controls
+  theme: 'dark',       // override theme
+  startPaused: true,   // start paused
 });
+
+// Playback control
+handle.pause();
+handle.resume();
+handle.reset();
+handle.isPaused; // readonly boolean
+
+// Uniform access
+handle.setUniform('uSpeed', 2.0);
+handle.getUniform('uSpeed'); // 2.0
 
 // Clean up
 handle.destroy();

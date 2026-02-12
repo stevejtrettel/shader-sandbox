@@ -42,7 +42,7 @@ export type {
 const BROWSER_ONLY_ERROR =
   "This API is browser-only. Import '@stevejtrettel/shader-sandbox' in your browser bundle, not in Node runtime.";
 
-export async function mount(_el: HTMLElement, _options: MountOptions): Promise<MountHandle> {
+export function mount(_el: HTMLElement, _options: MountOptions): MountHandle {
   throw new Error(BROWSER_ONLY_ERROR);
 }
 

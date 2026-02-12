@@ -30,13 +30,14 @@ import { BaseLayout, LayoutOptions, LayoutMode, MultiViewLayout, MultiViewLayout
 import { ThemeMode, MultiViewLayoutMode } from '../project/types';
 
 /**
- * Apply theme to the document.
- * Sets the data-theme attribute on the html element.
+ * Apply theme to a target element.
+ * Sets the data-theme attribute which activates the corresponding CSS custom properties.
  *
  * @param theme - Theme mode to apply ('light', 'dark', or 'system')
+ * @param target - Element to apply theme to (default: document.documentElement for backward compat)
  */
-export function applyTheme(theme: ThemeMode): void {
-  document.documentElement.setAttribute('data-theme', theme);
+export function applyTheme(theme: ThemeMode, target: HTMLElement = document.documentElement): void {
+  target.setAttribute('data-theme', theme);
 }
 
 /**
@@ -50,9 +51,6 @@ export function createLayout(
   mode: LayoutMode,
   options: LayoutOptions
 ): BaseLayout {
-  // Apply theme from project configuration
-  applyTheme(options.project.theme);
-
   switch (mode) {
     case 'fullscreen':
       return new FullscreenLayout(options);
@@ -76,9 +74,6 @@ export function createMultiViewLayout(
   mode: MultiViewLayoutMode,
   options: MultiViewLayoutOptions
 ): MultiViewLayout {
-  // Apply theme from project configuration
-  applyTheme(options.project.theme);
-
   switch (mode) {
     case 'split':
     case 'quad':

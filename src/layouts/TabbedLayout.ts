@@ -129,7 +129,7 @@ export class TabbedLayout implements BaseLayout {
 
   dispose(): void {
     if (this.keydownHandler) {
-      document.removeEventListener('keydown', this.keydownHandler);
+      this.container.removeEventListener('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
     if (this.editorInstance) {
@@ -149,7 +149,7 @@ export class TabbedLayout implements BaseLayout {
         }
       }
     };
-    document.addEventListener('keydown', this.keydownHandler);
+    this.container.addEventListener('keydown', this.keydownHandler);
   }
 
   private saveCurrentEditorContent(): void {

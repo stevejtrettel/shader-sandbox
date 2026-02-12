@@ -9,6 +9,7 @@
  *   shader dev <shader-name>          - Start development server
  *   shader build <shader-name>        - Build for production
  *   shader build-all                  - Build all shaders in shaders/
+ *   shader build-runtime              - Build the standalone runtime loader
  *   shader list                       - List available shaders
  *   shader build-gallery              - Build a static gallery index page
  *   shader render <name> [options]    - Render frames/video headlessly
@@ -44,6 +45,7 @@ Usage:
   shader dev <shader-name>          Start development server
   shader build <shader-name>        Build for production
   shader build-all                  Build all shaders in shaders/
+  shader build-runtime              Build the standalone runtime loader
   shader list                       List available shaders
   shader build-gallery              Build a static gallery index page
   shader render <name> [options]    Render frames/video (headless)
@@ -425,8 +427,8 @@ async function getProject() {
 /**
  * Mount this shader into a DOM element.
  * @param {HTMLElement} el - Target container element
- * @param {Object} [options] - Mount options (styled, pixelRatio)
- * @returns {Promise<{app, destroy}>} Handle with destroy() for cleanup
+ * @param {Object} [options] - Mount options (styled, pixelRatio, layout, controls, theme, startPaused)
+ * @returns {Promise<{pause, resume, reset, isPaused, setUniform, getUniform, destroy}>}
  */
 export async function mount(el, options = {}) {
   const project = await getProject();
@@ -1005,10 +1007,43 @@ ${cards.map(c => `    <a class="card" href="${escapeHtml(c.name)}/index.html">
         }
       }
 
+      // Copy runtime loader to dist/ if it exists in the package
+      const runtimeSrc = path.join(packageRoot, 'dist-runtime', 'shader-sandbox.js');
+      if (fs.existsSync(runtimeSrc)) {
+        const distDir = path.join(cwd, 'dist');
+        fs.mkdirSync(distDir, { recursive: true });
+        fs.copyFileSync(runtimeSrc, path.join(distDir, 'shader-sandbox.js'));
+        console.log('\n✓ Copied shader-sandbox.js runtime loader to dist/');
+      }
+
       console.log(`\nDone. ${shaders.length - failed}/${shaders.length} built successfully.`);
       if (failed > 0) process.exit(1);
     })();
 
+    break;
+  }
+
+  case 'build-runtime': {
+    const cwd = process.cwd();
+
+    // Check for the pre-built runtime in the package
+    const runtimeSrc = path.join(packageRoot, 'dist-runtime', 'shader-sandbox.js');
+    if (fs.existsSync(runtimeSrc)) {
+      // Just copy it
+      const distDir = path.join(cwd, 'dist');
+      fs.mkdirSync(distDir, { recursive: true });
+      fs.copyFileSync(runtimeSrc, path.join(distDir, 'shader-sandbox.js'));
+      console.log('✓ Copied shader-sandbox.js to dist/');
+      console.log('');
+      console.log('Usage:');
+      console.log('  <script type="module" src="/js/shader-sandbox.js"><\/script>');
+      console.log('  <shader-sandbox src="/shaders/my-shader/"><\/shader-sandbox>');
+    } else {
+      console.error('Error: Runtime bundle not found.');
+      console.error('The runtime loader (shader-sandbox.js) is not yet built.');
+      console.error('Run "npm run build:runtime" from the package root first.');
+      process.exit(1);
+    }
     break;
   }
 

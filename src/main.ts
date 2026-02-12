@@ -12,7 +12,6 @@
  *   npm run dev:demo mandelbrot-julia (multi-view)
  */
 
-import './styles/base.css';
 import './styles/dev.css';
 
 import { mount } from './mount';
@@ -35,10 +34,10 @@ async function main() {
       root.classList.add('dev-padded');
     }
 
-    const handle = await mount(root, { project });
+    const handle = mount(root, { project });
 
     // Expose for debugging
-    (window as any).app = handle.app;
+    (window as any).handle = handle;
 
   } catch (error) {
     console.error('Failed to initialize:', error);

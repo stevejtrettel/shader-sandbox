@@ -5,10 +5,6 @@
  * Supports both single-view and multi-view shader projects.
  */
 
-// NOTE: base.css is NOT imported here — it contains html/body { overflow: hidden }
-// which breaks page scrolling when the library is embedded in a host page.
-// Only the standalone app entries (main.ts) should import base.css.
-
 // Core API
 export { mount } from './mount';
 export type { MountOptions, MountHandle } from './mount';
