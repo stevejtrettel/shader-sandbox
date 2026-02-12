@@ -1,8 +1,0 @@
-{
-  "mode": "shadertoy",
-  "layout": "tabbed",
-  "controls": true,
-  "Image": {
-    "iChannel0": "texture.png"
-  }
-}
