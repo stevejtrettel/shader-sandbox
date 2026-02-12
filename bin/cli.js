@@ -8,6 +8,7 @@
  *   shader new <name> [template]      - Create a new shader from template
  *   shader dev <shader-name>          - Start development server
  *   shader build <shader-name>        - Build for production
+ *   shader build-all                  - Build all shaders in shaders/
  *   shader list                       - List available shaders
  *   shader build-gallery              - Build a static gallery index page
  *   shader render <name> [options]    - Render frames/video headlessly
@@ -42,6 +43,7 @@ Usage:
   shader new <name> [template]      Create a new shader from template
   shader dev <shader-name>          Start development server
   shader build <shader-name>        Build for production
+  shader build-all                  Build all shaders in shaders/
   shader list                       List available shaders
   shader build-gallery              Build a static gallery index page
   shader render <name> [options]    Render frames/video (headless)
@@ -58,6 +60,7 @@ Examples:
   shader dev simple                 Run a shader
   shader new my-shader              Create with default template
   shader new my-shader scripted     Create with scripted template
+  shader build-all                  Build all shaders at once
   shader list                       Show all shaders
 `);
 }
@@ -92,7 +95,21 @@ function getShaderList(cwd) {
   }
 
   const entries = fs.readdirSync(shadersDir, { withFileTypes: true });
-  return entries.filter(e => e.isDirectory()).map(e => e.name);
+  const names = new Set();
+
+  // Shader folders (have image.glsl or any .glsl inside)
+  for (const e of entries) {
+    if (e.isDirectory()) names.add(e.name);
+  }
+
+  // Bare .glsl files (my-shader.glsl → "my-shader")
+  for (const e of entries) {
+    if (!e.isDirectory() && e.name.endsWith('.glsl')) {
+      names.add(e.name.replace(/\.glsl$/, ''));
+    }
+  }
+
+  return [...names].sort();
 }
 
 function listShaders(cwd) {
@@ -331,6 +348,158 @@ function findViteBin(cwd) {
   return null;
 }
 
+/**
+ * Check if a shader exists (as a folder or bare .glsl file).
+ */
+function shaderExists(cwd, shaderName) {
+  const shadersDir = path.join(cwd, 'shaders');
+  const folderPath = path.join(shadersDir, shaderName);
+  const bareFile = path.join(shadersDir, `${shaderName}.glsl`);
+  return (fs.existsSync(folderPath) && fs.statSync(folderPath).isDirectory())
+    || fs.existsSync(bareFile);
+}
+
+/**
+ * Resolve a shader name to a directory path, handling bare .glsl files.
+ * If shaders/<name>/ exists, returns { dir, cleanup: null }.
+ * If shaders/<name>.glsl exists, creates a temp directory and returns { dir, cleanup }.
+ * Returns null if neither exists.
+ */
+function resolveShaderPath(cwd, shaderName) {
+  const shadersDir = path.join(cwd, 'shaders');
+  const folderPath = path.join(shadersDir, shaderName);
+  const bareFile = path.join(shadersDir, `${shaderName}.glsl`);
+
+  if (fs.existsSync(folderPath) && fs.statSync(folderPath).isDirectory()) {
+    return { dir: folderPath, cleanup: null };
+  }
+
+  if (fs.existsSync(bareFile)) {
+    // Create a temp directory with the .glsl file as image.glsl
+    fs.mkdirSync(folderPath, { recursive: true });
+    fs.copyFileSync(bareFile, path.join(folderPath, 'image.glsl'));
+    return {
+      dir: folderPath,
+      cleanup: () => {
+        try { fs.rmSync(folderPath, { recursive: true }); } catch {}
+      },
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Build a single shader. Returns a promise that resolves on success.
+ * Handles bare .glsl files by wrapping them in a temp directory.
+ */
+function buildShader(shaderName, cwd) {
+  return new Promise((resolve, reject) => {
+    const resolved = resolveShaderPath(cwd, shaderName);
+    if (!resolved) {
+      reject(new Error(`Shader "${shaderName}" not found`));
+      return;
+    }
+
+    const { cleanup } = resolved;
+
+    // Generate a shader-specific build entry that exports mount().
+    const buildEntryPath = path.join(cwd, '_build-entry.js');
+    const buildEntryCode = `
+import { mount as _mount, loadDemo } from '@stevejtrettel/shader-sandbox';
+
+const glslFiles = import.meta.glob('./shaders/${shaderName}/**/*.glsl', { query: '?raw', import: 'default' });
+const jsonFiles = import.meta.glob('./shaders/${shaderName}/*.json', { import: 'default' });
+const imageFiles = import.meta.glob('./shaders/${shaderName}/**/*.{jpg,jpeg,png,gif,webp,bmp}', { query: '?url', import: 'default' });
+const scriptFiles = import.meta.glob('./shaders/${shaderName}/**/script.js');
+
+let _project = null;
+
+async function getProject() {
+  if (!_project) {
+    _project = await loadDemo('shaders/${shaderName}', glslFiles, jsonFiles, imageFiles, scriptFiles);
+  }
+  return _project;
+}
+
+/**
+ * Mount this shader into a DOM element.
+ * @param {HTMLElement} el - Target container element
+ * @param {Object} [options] - Mount options (styled, pixelRatio)
+ * @returns {Promise<{app, destroy}>} Handle with destroy() for cleanup
+ */
+export async function mount(el, options = {}) {
+  const project = await getProject();
+  return _mount(el, { project, ...options });
+}
+`.trimStart();
+
+    fs.writeFileSync(buildEntryPath, buildEntryCode);
+
+    function cleanupAll() {
+      try { fs.unlinkSync(buildEntryPath); } catch {}
+      if (cleanup) cleanup();
+    }
+
+    const viteBin = findViteBin(cwd);
+    if (!viteBin) {
+      cleanupAll();
+      reject(new Error('vite not found in node_modules. Run "npm install" first'));
+      return;
+    }
+
+    const env = { ...process.env, SHADER_NAME: shaderName, SHADER_BUILD_ENTRY: '1' };
+
+    const child = spawn(viteBin, ['build'], {
+      cwd,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+      env
+    });
+
+    child.on('error', (err) => {
+      cleanupAll();
+      reject(new Error(`Failed to start vite: ${err.message}`));
+    });
+
+    child.on('close', (code) => {
+      cleanupAll();
+
+      if (code !== 0) {
+        reject(new Error(`Build failed for "${shaderName}" (exit code ${code})`));
+        return;
+      }
+
+      const outDir = path.join(cwd, 'dist', shaderName);
+
+      // Copy live-app.js custom element to output
+      const liveAppSrc = path.join(packageRoot, 'templates', 'live-app.js');
+      if (fs.existsSync(liveAppSrc)) {
+        fs.copyFileSync(liveAppSrc, path.join(outDir, 'live-app.js'));
+      }
+
+      // Generate a convenience index.html that uses <live-app>
+      const prettyTitle = shaderName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      const indexHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${prettyTitle}</title>
+  <script type="module" src="./live-app.js"><\/script>
+  <style>* { margin: 0; padding: 0; box-sizing: border-box; }</style>
+</head>
+<body>
+  <live-app src="./main.js" fullpage><\/live-app>
+</body>
+</html>`;
+      fs.writeFileSync(path.join(outDir, 'index.html'), indexHtml);
+
+      resolve();
+    });
+  });
+}
+
 function runVite(viteArgs, shaderName) {
   const cwd = process.cwd();
 
@@ -481,8 +650,8 @@ switch (command) {
       process.exit(1);
     }
 
-    const shaderPath = path.join(cwd, 'shaders', shaderName);
-    if (!fs.existsSync(shaderPath)) {
+    // Check shader exists (folder or bare .glsl)
+    if (!shaderExists(cwd, shaderName)) {
       const shaders = getShaderList(cwd);
 
       console.error(`Error: Shader "${shaderName}" not found`);
@@ -506,117 +675,28 @@ switch (command) {
       process.exit(1);
     }
 
-    // Generate a shader-specific build entry that exports mount().
-    // Uses shader-specific glob patterns so only this shader's files are bundled.
-    const buildEntryPath = path.join(cwd, '_build-entry.js');
-    const buildEntryCode = `
-import { mount as _mount, loadDemo } from '@stevejtrettel/shader-sandbox';
-
-const glslFiles = import.meta.glob('./shaders/${shaderName}/**/*.glsl', { query: '?raw', import: 'default' });
-const jsonFiles = import.meta.glob('./shaders/${shaderName}/*.json', { import: 'default' });
-const imageFiles = import.meta.glob('./shaders/${shaderName}/**/*.{jpg,jpeg,png,gif,webp,bmp}', { query: '?url', import: 'default' });
-const scriptFiles = import.meta.glob('./shaders/${shaderName}/**/script.js');
-
-let _project = null;
-
-async function getProject() {
-  if (!_project) {
-    _project = await loadDemo('shaders/${shaderName}', glslFiles, jsonFiles, imageFiles, scriptFiles);
-  }
-  return _project;
-}
-
-/**
- * Mount this shader into a DOM element.
- * The element is fully owned by the shader — it will append canvases, controls, etc.
- *
- * @param {HTMLElement} el - Target container element
- * @param {Object} [options] - Mount options (styled, pixelRatio)
- * @returns {Promise<{app, destroy}>} Handle with destroy() for cleanup
- */
-export async function mount(el, options = {}) {
-  const project = await getProject();
-  return _mount(el, { project, ...options });
-}
-`.trimStart();
-
-    fs.writeFileSync(buildEntryPath, buildEntryCode);
-
-    function cleanupBuildEntry() {
-      try { fs.unlinkSync(buildEntryPath); } catch {}
-    }
-
     console.log(`Building "${shaderName}"...`);
 
-    const viteBin = findViteBin(cwd);
-    if (!viteBin) {
-      cleanupBuildEntry();
-      console.error('Error: vite not found in node_modules');
-      console.error('Run "npm install" first');
+    buildShader(shaderName, cwd).then(() => {
+      console.log(`\n✓ Built to dist/${shaderName}/`);
+      console.log('');
+      console.log('Files:');
+      console.log(`  dist/${shaderName}/main.js       ES module (exports mount)`);
+      console.log(`  dist/${shaderName}/live-app.js    <live-app> custom element`);
+      console.log(`  dist/${shaderName}/index.html     Standalone page`);
+      console.log('');
+      console.log('Embed in your site:');
+      console.log(`  <script type="module" src="/js/live-app.js"><\/script>`);
+      console.log(`  <live-app src="/visualizations/${shaderName}.js" style="width:100%;height:400px;display:block"><\/live-app>`);
+      console.log('');
+      console.log('Or import directly:');
+      console.log(`  import { mount } from './${shaderName}/main.js';`);
+      console.log(`  const handle = await mount(myElement);`);
+      console.log(`  // later: handle.destroy();`);
+      process.exit(0);
+    }).catch((err) => {
+      console.error(`Error: ${err.message}`);
       process.exit(1);
-    }
-
-    const env = { ...process.env, SHADER_NAME: shaderName, SHADER_BUILD_ENTRY: '1' };
-
-    const child = spawn(viteBin, ['build'], {
-      cwd,
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-      env
-    });
-
-    child.on('error', (err) => {
-      cleanupBuildEntry();
-      console.error('Failed to start vite:', err.message);
-      process.exit(1);
-    });
-
-    child.on('close', (code) => {
-      cleanupBuildEntry();
-
-      if (code === 0) {
-        const outDir = path.join(cwd, 'dist', shaderName);
-
-        // Copy live-app.js custom element to output
-        const liveAppSrc = path.join(packageRoot, 'templates', 'live-app.js');
-        if (fs.existsSync(liveAppSrc)) {
-          fs.copyFileSync(liveAppSrc, path.join(outDir, 'live-app.js'));
-        }
-
-        // Generate a convenience index.html that uses <live-app>
-        const prettyTitle = shaderName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-        const indexHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${prettyTitle}</title>
-  <script type="module" src="./live-app.js"><\/script>
-  <style>* { margin: 0; padding: 0; box-sizing: border-box; }</style>
-</head>
-<body>
-  <live-app src="./main.js" fullpage><\/live-app>
-</body>
-</html>`;
-        fs.writeFileSync(path.join(outDir, 'index.html'), indexHtml);
-
-        console.log(`\n✓ Built to dist/${shaderName}/`);
-        console.log('');
-        console.log('Files:');
-        console.log(`  dist/${shaderName}/main.js       ES module (exports mount)`);
-        console.log(`  dist/${shaderName}/live-app.js    <live-app> custom element`);
-        console.log(`  dist/${shaderName}/index.html     Standalone page`);
-        console.log('');
-        console.log('Embed in your site:');
-        console.log(`  <script type="module" src="/js/live-app.js"><\/script>`);
-        console.log(`  <live-app src="/visualizations/${shaderName}.js" style="width:100%;height:400px;display:block"><\/live-app>`);
-        console.log('');
-        console.log('Or import directly:');
-        console.log(`  import { mount } from './${shaderName}/main.js';`);
-        console.log(`  const handle = await mount(myElement);`);
-        console.log(`  // later: handle.destroy();`);
-      }
-      process.exit(code || 0);
     });
 
     break;
@@ -893,6 +973,42 @@ ${cards.map(c => `    <a class="card" href="${escapeHtml(c.name)}/index.html">
         process.exit(code);
       }
     });
+    break;
+  }
+
+  case 'build-all': {
+    const cwd = process.cwd();
+    const shaders = getShaderList(cwd);
+
+    if (shaders === null) {
+      console.error('Error: shaders/ directory not found');
+      process.exit(1);
+    }
+
+    if (shaders.length === 0) {
+      console.log('No shaders found to build.');
+      process.exit(0);
+    }
+
+    console.log(`Building ${shaders.length} shader(s)...`);
+
+    (async () => {
+      let failed = 0;
+      for (const name of shaders) {
+        console.log(`\n--- Building "${name}" ---`);
+        try {
+          await buildShader(name, cwd);
+          console.log(`✓ ${name}`);
+        } catch (err) {
+          console.error(`✗ ${name}: ${err.message}`);
+          failed++;
+        }
+      }
+
+      console.log(`\nDone. ${shaders.length - failed}/${shaders.length} built successfully.`);
+      if (failed > 0) process.exit(1);
+    })();
+
     break;
   }
 

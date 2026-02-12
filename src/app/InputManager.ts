@@ -173,8 +173,9 @@ export class InputManager {
   }
 
   private setupTouchTracking(): void {
-    // Prevent default touch actions (scroll, zoom) on canvas
-    this.canvas.style.touchAction = 'none';
+    // Allow vertical scrolling so embedded shaders don't block page scroll,
+    // while still capturing horizontal drags and pinch gestures.
+    this.canvas.style.touchAction = 'pan-y';
 
     const getCanvasCoords = (clientX: number, clientY: number): [number, number] => {
       const rect = this.canvas.getBoundingClientRect();
@@ -210,7 +211,11 @@ export class InputManager {
         this.mouse[3] = y;
       }
 
-      e.preventDefault();
+      // NOTE: preventDefault() was removed here to allow the browser to take
+      // over vertical scrolling (with touchAction: 'pan-y'). Calling it on
+      // pointerdown overrides the CSS touch-action and blocks page scroll.
+      // If touch interaction breaks (e.g. unwanted text selection during drag),
+      // this may need to be restored — but only for non-embedded/fullscreen use.
     };
 
     const handlePointerMove = (e: PointerEvent) => {
@@ -248,7 +253,7 @@ export class InputManager {
       }
 
       this.updateTouchState();
-      e.preventDefault();
+      // NOTE: preventDefault() was removed here (same reason as pointerdown above).
     };
 
     const handlePointerCancel = (e: PointerEvent) => {

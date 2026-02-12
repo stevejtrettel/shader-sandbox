@@ -49,9 +49,12 @@ See more examples in the [demos/examples](https://github.com/stevejtrettel/shade
 shader create <name>     # Create new project folder
 shader create .          # Initialize in current folder
 shader dev <name>        # Run shader with live reload
-shader build <name>      # Build for production
-shader new <name>        # Create a new shader
+shader build <name>      # Build a single shader for production
+shader build-all         # Build all shaders in shaders/
+shader new <name>        # Create a new shader from template
 shader list              # List all shaders
+shader build-gallery     # Build a static gallery index page
+shader render <name>     # Render frames/video headlessly
 ```
 
 Use `npx shader` if not installed globally.
@@ -61,7 +64,8 @@ Use `npx shader` if not installed globally.
 ```
 my-shaders/
 ├── shaders/
-│   └── my-shader/
+│   ├── my-shader.glsl        # Bare shader file (single-pass, no config needed)
+│   └── complex-shader/
 │       ├── image.glsl        # Main shader (required)
 │       ├── bufferA.glsl      # Buffer passes (optional)
 │       ├── common.glsl       # Shared code across passes (optional)
@@ -71,6 +75,8 @@ my-shaders/
 ├── vite.config.js
 └── package.json
 ```
+
+Shaders can be either a **bare `.glsl` file** or a **folder**. A bare file like `shaders/my-effect.glsl` is treated as a single-pass shader (equivalent to a folder containing just `image.glsl`). Use a folder when you need multiple passes, config, textures, or scripts.
 
 ## Writing Shaders
 
@@ -349,18 +355,26 @@ The export button generates a standalone HTML file containing your shader. It in
 ## Building for Production
 
 ```bash
-shader build my-shader
+shader build my-shader      # Build a single shader
+shader build-all             # Build every shader in shaders/
 ```
 
-Outputs `dist/my-shader/main.js` (ES module) and `dist/my-shader/index.html` (standalone page).
+Both bare `.glsl` files and shader folders are supported. Output goes to `dist/<name>/`:
 
-The `main.js` module exports `mountDemo()` which can be used programmatically:
+```
+dist/my-shader/
+├── main.js        # ES module (exports mount)
+├── live-app.js    # <live-app> custom element
+└── index.html     # Standalone page
+```
+
+The `main.js` module exports `mount()` which can be used programmatically:
 
 ```html
 <div id="shader" style="width:100%;height:400px"></div>
 <script type="module">
-  import { mountDemo } from './main.js';
-  mountDemo(document.getElementById('shader'));
+  import { mount } from './dist/my-shader/main.js';
+  mount(document.getElementById('shader'));
 </script>
 ```
 
@@ -384,13 +398,104 @@ Built shaders include decoration (rounded corners, box shadows) by default. Cont
 
 ```js
 // With decoration (default)
-mountDemo(el);
+mount(el);
 
 // Without decoration (flat, for custom styling)
-mountDemo(el, { styled: false });
+mount(el, { styled: false });
 ```
 
 Decoration is controlled via CSS custom properties (`--pane-radius`, `--pane-shadow`) which you can override on the container element.
+
+## Quarto Integration
+
+Shader Sandbox includes a Quarto shortcode extension for embedding shaders in [Quarto](https://quarto.org) websites. Shaders are automatically compiled during `quarto render` and mounted into the page.
+
+Shaders live in `shaders/` directories alongside your `.qmd` files — place them wherever makes sense for your project structure.
+
+### Setup
+
+1. Install the package in your Quarto project:
+
+```bash
+npm install @stevejtrettel/shader-sandbox
+```
+
+2. Copy the extension and build config into your project. The files are in the installed package at `node_modules/@stevejtrettel/shader-sandbox/templates/`:
+
+```bash
+# Quarto shortcode extension
+cp -r node_modules/@stevejtrettel/shader-sandbox/templates/quarto/_extensions/ _extensions/
+
+# Build script + pre-render hook
+cp node_modules/@stevejtrettel/shader-sandbox/templates/quarto/build-shaders.mjs build-shaders.mjs
+cp node_modules/@stevejtrettel/shader-sandbox/templates/quarto/pre-render.sh pre-render.sh
+chmod +x pre-render.sh
+
+# Vite config (needed for building shaders)
+cp node_modules/@stevejtrettel/shader-sandbox/templates/vite.config.js vite.config.js
+```
+
+3. Add to your `_quarto.yml`:
+
+```yaml
+project:
+  type: website
+  pre-render: pre-render.sh
+  resources:
+    - dist/**
+```
+
+4. Add `shaders/` directories alongside your content. They can be at any depth:
+
+```
+my-quarto-site/
+├── _quarto.yml
+├── _extensions/shader-sandbox/
+├── build-shaders.mjs
+├── pre-render.sh
+├── vite.config.js
+├── package.json
+├── index.qmd
+├── 3d/
+│   └── raymarching/
+│       ├── notes.qmd
+│       ├── homework.qmd
+│       └── shaders/
+│           ├── sdf-basics.glsl
+│           └── soft-shadows/
+│               ├── image.glsl
+│               └── config.json
+└── intro/
+    ├── notes.qmd
+    └── shaders/
+        └── hello.glsl
+```
+
+The build script walks the entire project tree for `shaders/` directories and compiles each shader to `dist/<parent-path>/<shader-name>/`:
+
+```
+dist/3d/raymarching/sdf-basics/main.js
+dist/3d/raymarching/soft-shadows/main.js
+dist/intro/hello/main.js
+```
+
+### Usage
+
+Use the `{{< shader >}}` shortcode in any `.qmd` file:
+
+```markdown
+{{< shader sdf-basics >}}
+
+{{< shader soft-shadows height=600px >}}
+```
+
+The shortcode resolves the shader name relative to the current document's directory. So `{{< shader sdf-basics >}}` in `3d/raymarching/notes.qmd` loads `dist/3d/raymarching/sdf-basics/main.js`.
+
+The shortcode accepts:
+- **First argument** — shader name (matches filename without `.glsl` or folder name in the nearest `shaders/` directory)
+- **`height`** — container height (default: `400px`)
+
+When you run `quarto render`, the pre-render script automatically builds all shaders, and the shortcode emits the HTML to load and mount each one.
 
 ## Using as a Library
 

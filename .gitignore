@@ -34,3 +34,5 @@ yarn-error.log*
 
 # Generated files
 src/project/generatedLoader.ts
+
+/.luarc.json
