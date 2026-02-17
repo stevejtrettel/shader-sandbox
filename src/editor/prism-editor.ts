@@ -45,8 +45,10 @@ export function createEditor(
   textarea.autocapitalize = 'off';
   textarea.autocomplete = 'off';
 
-  // Create highlighted code overlay
-  const highlight = document.createElement('pre');
+  // Create highlighted code overlay (use div, not pre, to prevent Prism.js
+  // from adding language-* class and tabindex to the parent, which causes
+  // external CSS to add padding/margin that desync the textarea overlay)
+  const highlight = document.createElement('div');
   highlight.className = 'prism-editor-highlight';
   const code = document.createElement('code');
   code.className = 'language-cpp';

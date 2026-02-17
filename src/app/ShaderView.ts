@@ -257,6 +257,10 @@ export class ShaderView {
       overlay.remove();
     }
     this._overlays.clear();
+    // Explicitly release the WebGL context to free GPU resources
+    // (prevents context leaks when components are dynamically mounted/unmounted)
+    const loseCtx = this.gl.getExtension('WEBGL_lose_context');
+    if (loseCtx) loseCtx.loseContext();
     this.container.removeChild(this.canvas);
   }
 

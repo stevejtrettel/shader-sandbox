@@ -1,0 +1,8 @@
+{
+  "title": "Starscapes",
+  "description": "Starscape shader demos",
+  "layout": "split",
+  "theme": "dark",
+  "controls": true,
+  "Image": {}
+}
