@@ -1,6 +1,6 @@
 {
   "name": "shader-sandbox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local Shadertoy-compatible GLSL shader development environment with live editing",
   "author": "Steve Trettel",
   "license": "MIT",
@@ -33,6 +33,11 @@
       "default": "./dist-lib/node.js"
     },
     "./runtime": {
+      "types": "./dist-lib/runtime.d.ts",
+      "import": "./dist-lib/runtime.js",
+      "default": "./dist-lib/runtime.js"
+    },
+    "./runtime/standalone": {
       "import": "./dist-runtime/shader-sandbox.js",
       "default": "./dist-runtime/shader-sandbox.js"
     }

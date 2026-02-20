@@ -7,7 +7,7 @@
 
 // Core API
 export { mount } from './mount';
-export type { MountOptions, MountHandle } from './mount';
+export type { MountOptions, MountPresentationOptions, MountHandle } from './mount';
 
 // Components
 export { App } from './app/App';

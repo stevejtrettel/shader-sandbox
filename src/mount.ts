@@ -40,6 +40,9 @@ export interface MountOptions {
   startPaused?: boolean;
 }
 
+/** Consumer-facing options (everything except `project`, which is loaded by the caller). */
+export type MountPresentationOptions = Omit<MountOptions, 'project'>;
+
 export interface MountHandle {
   pause(): void;
   resume(): void;

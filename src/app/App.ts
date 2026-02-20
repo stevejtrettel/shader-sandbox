@@ -51,8 +51,8 @@ export class App {
   private pausedElapsedTime: number = 0;
   private disposed: boolean = false;
 
-  // Stats panel
-  private statsPanel: StatsPanel;
+  // Stats panel (null when controls are disabled)
+  private statsPanel: StatsPanel | null = null;
 
   // Playback controls
   private playbackControls: PlaybackControls | null = null;
@@ -141,14 +141,18 @@ export class App {
     // =========================================================================
 
     this.recorder = new Recorder(this.primaryView.canvas, this.container, this.project.root);
-    this.statsPanel = new StatsPanel(this.container);
-    this.statsPanel.updateResolution(this.primaryView.canvas.width, this.primaryView.canvas.height);
+
+    // Only create stats panel when controls are enabled
+    if (this.project.controls !== false) {
+      this.statsPanel = new StatsPanel(this.container);
+      this.statsPanel.updateResolution(this.primaryView.canvas.width, this.primaryView.canvas.height);
+    }
 
     // Wire resize and context-restored callbacks (after statsPanel is created)
     if (this.isMultiView) {
       // Only primary view updates stats resolution
       this.primaryView.onResize = (w, h) => {
-        this.statsPanel.updateResolution(w, h);
+        this.statsPanel?.updateResolution(w, h);
       };
 
       // Wire context restored for all views
@@ -166,7 +170,7 @@ export class App {
       }
     } else {
       this.primaryView.onResize = (w, h) => {
-        this.statsPanel.updateResolution(w, h);
+        this.statsPanel?.updateResolution(w, h);
         this.startTime = performance.now() / 1000;
         this.pausedElapsedTime = 0;
       };
@@ -226,8 +230,8 @@ export class App {
       }
     }
 
-    // Create floating uniforms panel
-    if (!opts.skipUniformsPanel && this.project.uniforms && Object.values(this.project.uniforms).some(def => hasUIControl(def))) {
+    // Create floating uniforms panel (suppressed when controls are disabled)
+    if (this.project.controls !== false && !opts.skipUniformsPanel && this.project.uniforms && Object.values(this.project.uniforms).some(def => hasUIControl(def))) {
       this.uniformsPanel = new UniformsPanel({
         container: this.container,
         uniforms: this.project.uniforms,
@@ -429,9 +433,9 @@ export class App {
     const currentTimeSec = currentTimeMs / 1000;
     const elapsedTime = currentTimeSec - this.startTime;
 
-    this.statsPanel.update(currentTimeSec, elapsedTime);
+    this.statsPanel?.update(currentTimeSec, elapsedTime);
 
-    this.runScriptOnFrame(elapsedTime, this.statsPanel.totalFrameCount);
+    this.runScriptOnFrame(elapsedTime, this.statsPanel?.totalFrameCount ?? 0);
 
     if (this.isMultiView) {
       // Collect cross-view states from all views
@@ -477,7 +481,7 @@ export class App {
     this.startTime = performance.now() / 1000;
     this.pausedElapsedTime = 0;
     this._lastOnFrameTime = null;
-    this.statsPanel.reset();
+    this.statsPanel?.reset();
     for (const view of this.views.values()) {
       view.engine.reset();
     }
@@ -746,6 +750,6 @@ export class App {
     if (this.globalKeyHandler) this.container.removeEventListener('keydown', this.globalKeyHandler);
     if (this.controlsKeyHandler) this.container.removeEventListener('keydown', this.controlsKeyHandler);
     this.uniformsPanel?.destroy();
-    this.statsPanel.dispose();
+    this.statsPanel?.dispose();
   }
 }

@@ -330,7 +330,7 @@ Set `"layout"` in config.json:
 
 Keyboard shortcuts are scoped to the focused shader — click a shader to give it focus, then use the shortcuts. This allows multiple shaders on the same page without interference.
 
-Set `"controls": true` in config to show on-screen buttons for play/pause, reset, screenshot, record, and export. A stats panel displays FPS, elapsed time, frame count, and canvas resolution.
+Set `"controls": true` in config to show on-screen buttons for play/pause, reset, screenshot, record, and export, along with a stats panel (FPS, elapsed time, frame count, resolution) and a uniforms panel toggle. Setting `"controls": false` suppresses all overlay UI — the output is purely the canvas with no chrome.
 
 ## Configuration Options
 
@@ -426,7 +426,7 @@ All other attributes are passed as options to the module's `mount()` function. A
 ></live-app>
 ```
 
-**Lazy loading:** By default, `<live-app>` uses an IntersectionObserver to mount shaders only when they scroll into view, and unmount them (destroying the WebGL context) when they scroll away. This keeps a page with many shaders within browser WebGL context limits (~8-16). Set `lazy="false"` to disable this and mount immediately.
+**Lazy loading:** By default, `<live-app>` uses an IntersectionObserver to mount modules only when they scroll into view, and unmount them (calling `destroy()`) when they scroll away. This keeps a page with many visualizations within browser WebGL context limits. Set `lazy="false"` to disable this and mount immediately.
 
 **Module contract:** The imported module must export `mount(el, options?) → { destroy() }` (or a Promise that resolves to one). This matches the build output of shader-sandbox, but also works with any module that follows the same contract.
 
@@ -451,22 +451,61 @@ Pane decoration is controlled via CSS custom properties (`--pane-radius`, `--pan
 
 ## Runtime Loader (No Build Step)
 
-For prototyping, static sites, or Quarto — where you just want to drop `.glsl` files on a server without running a build — use the runtime loader. It fetches shader files directly over HTTP.
+For blogs, static sites, or Quarto — where you just want to drop `.glsl` files on a server without running a build — use the runtime loader. It fetches shader files directly over HTTP using the `<shader-sandbox>` custom element.
+
+### Setup
+
+**With a bundler (Astro, Vite, etc.):**
+
+```bash
+npm install shader-sandbox
+```
+
+Then import the runtime in a layout or component:
+
+```js
+import 'shader-sandbox/runtime';
+```
+
+The import registers the `<shader-sandbox>` custom element. For sites where only some pages have shaders, use a conditional dynamic import:
+
+```js
+if (document.querySelector('shader-sandbox')) {
+  import('shader-sandbox/runtime');
+}
+```
+
+**Without a bundler (static file):**
 
 ```bash
 shader build-runtime    # Copy shader-sandbox.js to dist/
 ```
 
-Then point the `<shader-sandbox>` element at a folder of shader files:
-
 ```html
 <script type="module" src="/js/shader-sandbox.js"></script>
-
-<shader-sandbox src="/shaders/mandelbrot/" style="width:100%;height:400px;display:block;"></shader-sandbox>
-<shader-sandbox src="/shaders/julia/" controls="false" theme="dark"></shader-sandbox>
 ```
 
-The folder just needs raw shader files — the same ones you'd use with `shader dev`:
+### Usage
+
+The `<shader-sandbox>` element supports three source modes:
+
+```html
+<!-- Folder: loads config.json + image.glsl + buffers + textures + script.js -->
+<shader-sandbox src="/shaders/mandelbrot/"></shader-sandbox>
+
+<!-- Single file: fetches one .glsl/.frag file, creates a single-pass shader -->
+<shader-sandbox src="/shaders/heatmap.glsl"></shader-sandbox>
+
+<!-- Inline: GLSL source as text content (no fetch, no src needed) -->
+<shader-sandbox>
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    vec2 uv = fragCoord / iResolution.xy;
+    fragColor = vec4(uv, 0.5, 1.0);
+}
+</shader-sandbox>
+```
+
+Folder-based shaders use the same structure as `shader dev`:
 
 ```
 shaders/mandelbrot/
@@ -477,28 +516,93 @@ shaders/mandelbrot/
 └── script.js          # Optional (ES module with setup/onFrame hooks)
 ```
 
-For the simplest case (a single shader with no config), just `image.glsl` is enough.
-
 ### `<shader-sandbox>` Attributes
 
-The `<shader-sandbox>` element works just like `<live-app>` — all non-reserved attributes are passed as mount options:
+All non-reserved attributes are passed as mount options (kebab-case → camelCase, with type coercion):
 
 ```html
 <shader-sandbox src="/shaders/my-shader/"
+  size="square"
   controls="false"
   theme="dark"
-  start-paused="true"
-  layout="fullscreen"
 ></shader-sandbox>
 ```
 
+**Reserved attributes** (control the element itself):
+
 | Attribute | Description |
 |-----------|-------------|
-| `src` | Path to the shader folder (must end with `/` or have no `.js` extension) |
-| `fullpage` | Fill the viewport |
+| `src` | URL to a shader folder (`/shaders/foo/`) or single file (`/shaders/foo.glsl`) |
+| `size` | Named size preset (see below) |
+| `static` | Render one frame, no controls — for non-animated figures like heatmaps |
+| `fullpage` | Fill the viewport (`position:fixed`, 100vw x 100vh) |
 | `lazy` | `"false"` to disable lazy loading (default: lazy-loads on scroll) |
 
-Lazy loading works the same as `<live-app>` — shaders mount when they scroll into view and unmount when they scroll away, keeping WebGL context usage within browser limits.
+**Mount option attributes** (passed through to the shader):
+
+| Attribute | Values | Description |
+|-----------|--------|-------------|
+| `controls` | `"true"` / `"false"` | Show/hide all overlay UI (playback, FPS, uniforms panel) |
+| `start-paused` | `"true"` / `"false"` | Start with animation paused |
+| `theme` | `"light"` / `"dark"` / `"system"` | Color theme |
+| `pixel-ratio` | number | Canvas resolution multiplier |
+| `styled` | `"true"` / `"false"` | Border-radius/box-shadow decoration |
+| `layout` | `"fullscreen"` / `"default"` | Layout mode |
+
+### Size Presets
+
+The `size` attribute applies default styles. Explicit inline `style` attributes override these.
+
+| Preset | Styles |
+|--------|--------|
+| `wide` | `width:100%; aspect-ratio:16/9` |
+| `square` | `width:100%; aspect-ratio:1/1; max-width:600px; margin:0 auto` |
+| `square-sm` | `width:100%; aspect-ratio:1/1; max-width:400px; margin:0 auto` |
+| `banner` | `width:100%; aspect-ratio:3/1` |
+| `tall` | `width:100%; aspect-ratio:3/4; max-width:500px; margin:0 auto` |
+
+```html
+<shader-sandbox src="/shaders/heatmap.glsl" size="square" static></shader-sandbox>
+```
+
+### Lazy Loading
+
+By default, `<shader-sandbox>` uses an IntersectionObserver to defer mounting until the element scrolls into view. When the element scrolls out of view, the shader **pauses** (preserving time and uniform state) and **resumes** when it scrolls back in. The shader is only destroyed when the element is removed from the DOM.
+
+Set `lazy="false"` to mount immediately.
+
+### Loading and Error States
+
+While fetching shader files, a "Loading shader..." placeholder is shown. If loading fails, a styled error message is displayed in place of the shader.
+
+### Programmatic API
+
+The runtime also exports functions for use in JavaScript:
+
+```js
+import { loadFromFolder, loadFromSource } from 'shader-sandbox/runtime';
+
+// Load from a folder or .glsl URL
+const handle = await loadFromFolder(element, '/shaders/mandelbrot/', {
+  controls: false,
+  theme: 'dark',
+});
+
+// Load from inline GLSL source (synchronous)
+const handle = loadFromSource(element, `
+  void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+      vec2 uv = fragCoord / iResolution.xy;
+      fragColor = vec4(uv, 0.5, 1.0);
+  }
+`);
+
+// Control playback
+handle.pause();
+handle.resume();
+handle.reset();
+handle.setUniform('uSpeed', 2.0);
+handle.destroy();
+```
 
 ### Runtime Loader vs Build
 
@@ -508,7 +612,7 @@ Lazy loading works the same as `<live-app>` — shaders mount when they scroll i
 | HTTP requests | 1 bundled JS file | N fetches (config + glsl + textures) |
 | First paint | Faster (pre-bundled) | Slightly slower (sequential fetch) |
 | Dependencies | Needs Vite + Node | None — static file server only |
-| Best for | Production sites | Prototyping, Quarto, static sites |
+| Best for | Production sites | Blogs, Quarto, static sites |
 
 Both approaches support all the same shader features (buffers, uniforms, textures, scripts, etc.) and the same mount options.
 

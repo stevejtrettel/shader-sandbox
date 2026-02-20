@@ -6,30 +6,28 @@
  * file server.
  *
  * Exports:
- *   - mount(el, options)        — <live-app> compatible API
- *   - loadFromFolder(el, url, options) — direct API
+ *   - loadFromFolder(el, url, options)  — load from a shader folder or .glsl URL
+ *   - loadFromSource(el, glsl, options) — load from inline GLSL source
  *
  * Also registers the <shader-sandbox> custom element:
  *   <shader-sandbox src="/shaders/mandelbrot/" controls="false"></shader-sandbox>
+ *   <shader-sandbox src="/shaders/heatmap.glsl" static></shader-sandbox>
+ *   <shader-sandbox size="square">void mainImage(...) { ... }</shader-sandbox>
  */
 
-import { mount as coreMount, MountHandle } from './mount';
-import { loadProjectFromFiles } from './project/loadProjectCore';
+import { mount as coreMount, MountHandle, MountPresentationOptions } from './mount';
+import { buildShaderProject, loadProjectFromFiles } from './project/loadProjectCore';
 import type { FileLoader } from './project/FileLoader';
-import type { DemoScriptHooks } from './project/types';
-import type { LayoutMode } from './layouts/types';
-import type { ThemeMode } from './project/types';
+import type { DemoScriptHooks, Channels } from './project/types';
 
 // =============================================================================
 // Fetch-based FileLoader
 // =============================================================================
 
 function createFetchFileLoader(baseUrl: string): FileLoader {
-  // Cache promises (not results) to deduplicate concurrent requests
   const cache = new Map<string, Promise<string | null>>();
 
   function resolveUrl(path: string): string {
-    // Strip leading ./ — URL constructor handles the rest
     const clean = path.replace(/^\.\//, '');
     return new URL(clean, baseUrl).href;
   }
@@ -65,11 +63,11 @@ function createFetchFileLoader(baseUrl: string): FileLoader {
     },
 
     async listGlslFiles(): Promise<string[]> {
-      return []; // Cannot list directory contents over HTTP
+      return [];
     },
 
     async hasFiles(): Promise<boolean> {
-      return false; // Cannot check directory contents over HTTP
+      return false;
     },
 
     joinPath(...parts: string[]): string {
@@ -98,35 +96,56 @@ async function loadScript(baseUrl: string): Promise<DemoScriptHooks | null> {
     if (typeof mod.onFrame === 'function') hooks.onFrame = mod.onFrame;
     return (hooks.setup || hooks.onFrame) ? hooks : null;
   } catch {
-    return null; // import failed — that's fine
+    return null;
   }
+}
+
+// =============================================================================
+// Minimal project from raw GLSL source
+// =============================================================================
+
+const NO_CHANNELS: Channels = [
+  { kind: 'none' }, { kind: 'none' }, { kind: 'none' }, { kind: 'none' },
+];
+
+function projectFromGlsl(glsl: string, name: string) {
+  return buildShaderProject({
+    mode: 'standard',
+    root: name,
+    commonSource: null,
+    passes: {
+      Image: { name: 'Image', glslSource: glsl, channels: NO_CHANNELS },
+    },
+  });
 }
 
 // =============================================================================
 // Public API
 // =============================================================================
 
-export interface RuntimeMountOptions {
-  styled?: boolean;
-  pixelRatio?: number;
-  layout?: LayoutMode;
-  controls?: boolean;
-  theme?: ThemeMode;
-  startPaused?: boolean;
-}
-
 /**
- * Load a shader project from a folder URL and mount it into a DOM element.
+ * Load a shader project from a URL and mount it into a DOM element.
  *
- * @param el - Target DOM element
- * @param url - URL to a shader folder ("/shaders/mandelbrot/")
- * @param options - Presentation options
+ * Supports two URL shapes:
+ *   - Folder URL ("/shaders/mandelbrot/")     — full project with config.json
+ *   - Single GLSL file ("/shaders/heatmap.glsl") — single-pass, no config needed
  */
 export async function loadFromFolder(
   el: HTMLElement,
   url: string,
-  options?: RuntimeMountOptions,
+  options?: MountPresentationOptions,
 ): Promise<MountHandle> {
+  // Single-file mode: URL points directly to a .glsl or .frag file
+  if (/\.(glsl|frag)$/i.test(url)) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch shader: ${url}`);
+    const glsl = await res.text();
+    const name = url.split('/').pop()?.replace(/\.(glsl|frag)$/i, '') ?? 'shader';
+    const project = projectFromGlsl(glsl, name);
+    return coreMount(el, { project, ...options });
+  }
+
+  // Folder mode: load full project from directory
   const baseUrl = url.endsWith('/') ? url : url + '/';
   const loader = createFetchFileLoader(baseUrl);
   const script = await loadScript(baseUrl);
@@ -136,67 +155,87 @@ export async function loadFromFolder(
     textureUrlResolver: async (path: string) => new URL(path, baseUrl).href,
   });
 
-  return coreMount(el, {
-    project,
-    styled: options?.styled ?? true,
-    pixelRatio: options?.pixelRatio,
-    layout: options?.layout,
-    controls: options?.controls,
-    theme: options?.theme,
-    startPaused: options?.startPaused,
-  });
+  return coreMount(el, { project, ...options });
 }
 
 /**
- * <live-app> compatible mount function.
- * Reads options.shaderSrc for the folder URL.
+ * Mount a shader from inline GLSL source (no fetch).
  */
-export async function mount(
+export function loadFromSource(
   el: HTMLElement,
-  options?: RuntimeMountOptions & { shaderSrc?: string },
-): Promise<MountHandle> {
-  const src = options?.shaderSrc;
-  if (!src) {
-    throw new Error(
-      'shader-sandbox runtime: "shaderSrc" option is required. ' +
-      'Use <shader-sandbox src="..."> or pass shaderSrc in options.',
-    );
-  }
-  return loadFromFolder(el, src, options);
+  glsl: string,
+  options?: MountPresentationOptions,
+): MountHandle {
+  const project = projectFromGlsl(glsl, 'inline');
+  return coreMount(el, { project, ...options });
 }
 
 // Re-export for consumers
-export type { MountHandle };
+export type { MountHandle, MountPresentationOptions };
+
+// =============================================================================
+// Size Presets
+// =============================================================================
+
+const SIZE_PRESETS: Record<string, Record<string, string>> = {
+  wide:         { width: '100%', aspectRatio: '16/9' },
+  square:       { width: '100%', aspectRatio: '1/1', maxWidth: '600px', margin: '0 auto' },
+  'square-sm':  { width: '100%', aspectRatio: '1/1', maxWidth: '400px', margin: '0 auto' },
+  banner:       { width: '100%', aspectRatio: '3/1' },
+  tall:         { width: '100%', aspectRatio: '3/4', maxWidth: '500px', margin: '0 auto' },
+};
 
 // =============================================================================
 // <shader-sandbox> Custom Element
 // =============================================================================
 
-const RESERVED = new Set(['src', 'fullpage', 'lazy', 'style', 'class', 'id', 'slot', 'is']);
+const RESERVED = new Set([
+  'src', 'fullpage', 'lazy', 'size', 'static',
+  'style', 'class', 'id', 'slot', 'is',
+]);
 
 function kebabToCamel(s: string): string {
   return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 }
 
 function coerce(v: string): string | number | boolean {
-  if (v === 'true') return true;
+  if (v === 'true' || v === '') return true;   // bare attribute (e.g. <el static>) → true
   if (v === 'false') return false;
   const n = Number(v);
-  if (v !== '' && !isNaN(n)) return n;
+  if (!isNaN(n)) return n;
   return v;
 }
 
 class ShaderSandbox extends HTMLElement {
   private _handle: MountHandle | null = null;
   private _observer: IntersectionObserver | null = null;
-  private _unmountTimer: ReturnType<typeof setTimeout> | null = null;
   private _mounted: boolean = false;
+  private _loading: boolean = false;
+  private _placeholder: HTMLElement | null = null;
 
   connectedCallback() {
     const src = this.getAttribute('src');
-    if (!src) {
-      console.error('<shader-sandbox>: missing "src" attribute');
+    const inlineGlsl = !src ? (this.textContent?.trim() || null) : null;
+
+    if (!src && !inlineGlsl) {
+      console.error('<shader-sandbox>: provide a "src" attribute or inline GLSL content');
       return;
+    }
+
+    // Save and clear inline GLSL so it doesn't render as visible text
+    if (inlineGlsl) {
+      this.textContent = '';
+    }
+
+    // Apply size preset defaults (explicit style attributes override these)
+    const sizePreset = this.getAttribute('size');
+    if (sizePreset && SIZE_PRESETS[sizePreset]) {
+      for (const [prop, val] of Object.entries(SIZE_PRESETS[sizePreset])) {
+        const cssProp = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+        if (!this.style.getPropertyValue(cssProp)) {
+          (this.style as any)[prop] = val;
+        }
+      }
     }
 
     // Fullpage mode
@@ -213,6 +252,11 @@ class ShaderSandbox extends HTMLElement {
       this.style.display = 'block';
     }
 
+    // Position context for loading/error overlays
+    if (!this.style.position || this.style.position === 'static') {
+      this.style.position = 'relative';
+    }
+
     // Lazy loading (default: true)
     const lazy = this.getAttribute('lazy') !== 'false';
 
@@ -220,62 +264,115 @@ class ShaderSandbox extends HTMLElement {
       this._observer = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting) {
-            if (this._unmountTimer !== null) {
-              clearTimeout(this._unmountTimer);
-              this._unmountTimer = null;
+            if (!this._mounted && !this._loading) {
+              this._mountShader(src, inlineGlsl);
+            } else if (this._handle) {
+              this._handle.resume();
             }
-            if (!this._mounted) {
-              this._mountShader();
-            }
-          } else if (this._mounted) {
-            this._unmountTimer = setTimeout(() => {
-              this._unmountTimer = null;
-              this._unmountShader();
-            }, 1000);
+          } else if (this._handle) {
+            this._handle.pause();
           }
         },
         { rootMargin: '200px' },
       );
       this._observer.observe(this);
     } else {
-      this._mountShader();
+      this._mountShader(src, inlineGlsl);
     }
   }
 
   disconnectedCallback() {
-    if (this._unmountTimer !== null) {
-      clearTimeout(this._unmountTimer);
-      this._unmountTimer = null;
-    }
     this._observer?.disconnect();
     this._observer = null;
-    this._unmountShader();
+    this._destroyShader();
   }
 
-  private _buildOptions(): RuntimeMountOptions {
+  private _buildOptions(): MountPresentationOptions {
     const opts: Record<string, unknown> = {};
     for (const attr of this.attributes) {
       if (RESERVED.has(attr.name)) continue;
       opts[kebabToCamel(attr.name)] = coerce(attr.value);
     }
-    return opts as RuntimeMountOptions;
+    // static → render one frame, no controls
+    if (this.hasAttribute('static')) {
+      opts.startPaused = true;
+      opts.controls = false;
+    }
+    return opts as MountPresentationOptions;
   }
 
-  private async _mountShader(): Promise<void> {
-    if (this._mounted) return;
-    this._mounted = true;
+  private _showLoading(): void {
+    this._placeholder = document.createElement('div');
+    Object.assign(this._placeholder.style, {
+      position: 'absolute',
+      inset: '0',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: '#888',
+      fontSize: '14px',
+      fontFamily: 'system-ui, sans-serif',
+    });
+    this._placeholder.textContent = 'Loading shader\u2026';
+    this.appendChild(this._placeholder);
+  }
 
-    const src = this.getAttribute('src')!;
-
-    try {
-      this._handle = await loadFromFolder(this, src, this._buildOptions());
-    } catch (err) {
-      console.error('<shader-sandbox>: failed to load shader', err);
-      this._mounted = false;
+  private _clearPlaceholder(): void {
+    if (this._placeholder) {
+      this._placeholder.remove();
+      this._placeholder = null;
     }
   }
 
-  private _unmountShader(): void {
+  private _showError(err: unknown): void {
+    this._clearPlaceholder();
+    const msg = err instanceof Error ? err.message : String(err);
+    const errorEl = document.createElement('div');
+    Object.assign(errorEl.style, {
+      position: 'absolute',
+      inset: '0',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: '#c44',
+      fontSize: '13px',
+      fontFamily: 'system-ui, sans-serif',
+      padding: '1em',
+      textAlign: 'center',
+      background: 'rgba(0,0,0,0.05)',
+    });
+    errorEl.textContent = `Shader error: ${msg}`;
+    this._placeholder = errorEl;
+    this.appendChild(errorEl);
+  }
+
+  private async _mountShader(src: string | null, inlineGlsl: string | null): Promise<void> {
+    if (this._mounted || this._loading) return;
+    this._loading = true;
+    this._showLoading();
+
+    try {
+      const options = this._buildOptions();
+
+      if (inlineGlsl) {
+        this._clearPlaceholder();
+        this._handle = loadFromSource(this, inlineGlsl, options);
+      } else {
+        this._handle = await loadFromFolder(this, src!, options);
+        this._clearPlaceholder();
+      }
+
+      this._mounted = true;
+    } catch (err) {
+      console.error('<shader-sandbox>: failed to load shader', err);
+      this._showError(err);
+    } finally {
+      this._loading = false;
+    }
+  }
+
+  private _destroyShader(): void {
+    this._clearPlaceholder();
     if (!this._mounted) return;
     this._handle?.destroy();
     this._handle = null;
