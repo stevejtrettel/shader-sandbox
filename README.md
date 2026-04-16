@@ -339,11 +339,33 @@ These are set in `config.json` for each shader. The presentation options (`layou
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `layout` | string | `"default"` | Canvas layout mode (see Layouts) |
-| `theme` | string | `"light"` | `"light"`, `"dark"`, or `"system"` (follows OS preference) |
+| `theme` | string | `"auto"` | `"auto"` (inherit from host page), `"light"`, `"dark"`, or `"system"` (follows OS preference) |
 | `controls` | boolean | `true` | Show on-screen playback controls |
 | `startPaused` | boolean | `false` | Start with animation paused |
 | `pixelRatio` | number | device ratio | Canvas resolution multiplier (use < 1 for performance) |
 | `common` | string | — | Path to shared GLSL file prepended to all passes |
+
+## Theming
+
+The `theme` option controls how the sandbox is styled:
+
+| Mode | Description |
+|------|-------------|
+| `"auto"` | **Host mode** (default). Inherits fonts and colors from the page. Backgrounds are transparent, text uses `currentColor`, code editor adapts to light/dark via `prefers-color-scheme`. Use this when embedding in a blog or site with its own design system. |
+| `"light"` | Self-styled light theme with its own fonts, colors, and shadows. |
+| `"dark"` | Self-styled dark theme. |
+| `"system"` | Self-styled, follows the OS light/dark preference. |
+
+In host mode (`"auto"`), the sandbox's structural CSS loads but all decorative styling (backgrounds, shadows, fonts) defers to the page. The code editor gets a solid background for readability and automatically switches between light and dark syntax highlighting based on the user's OS preference.
+
+To override specific variables in host mode, set CSS custom properties on the container:
+
+```css
+shader-sandbox {
+  --accent-primary: #e06c75;
+  --code-bg: #282c34;
+}
+```
 
 ## Recording and Export
 
@@ -384,7 +406,7 @@ The `main.js` module exports `mount()` which can be used programmatically:
   // Override presentation settings from config.json:
   mount(document.getElementById('shader'), {
     controls: false,
-    theme: 'dark',
+    theme: 'dark',  // 'auto' (default), 'light', 'dark', 'system'
     startPaused: true,
   });
 </script>
@@ -440,7 +462,7 @@ mount(el, {
   pixelRatio: 1,       // override canvas pixel ratio
   layout: 'fullscreen', // override layout mode
   controls: false,     // hide playback controls
-  theme: 'dark',       // override color theme ('light', 'dark', 'system')
+  theme: 'dark',       // override color theme ('auto', 'light', 'dark', 'system')
   startPaused: true,   // start with animation paused
 });
 ```
@@ -522,7 +544,6 @@ All non-reserved attributes are passed as mount options (kebab-case → camelCas
 
 ```html
 <shader-sandbox src="/shaders/my-shader/"
-  size="square"
   controls="false"
   theme="dark"
 ></shader-sandbox>
@@ -533,7 +554,6 @@ All non-reserved attributes are passed as mount options (kebab-case → camelCas
 | Attribute | Description |
 |-----------|-------------|
 | `src` | URL to a shader folder (`/shaders/foo/`) or single file (`/shaders/foo.glsl`) |
-| `size` | Named size preset (see below) |
 | `static` | Render one frame, no controls — for non-animated figures like heatmaps |
 | `fullpage` | Fill the viewport (`position:fixed`, 100vw x 100vh) |
 | `lazy` | `"false"` to disable lazy loading (default: lazy-loads on scroll) |
@@ -544,25 +564,25 @@ All non-reserved attributes are passed as mount options (kebab-case → camelCas
 |-----------|--------|-------------|
 | `controls` | `"true"` / `"false"` | Show/hide all overlay UI (playback, FPS, uniforms panel) |
 | `start-paused` | `"true"` / `"false"` | Start with animation paused |
-| `theme` | `"light"` / `"dark"` / `"system"` | Color theme |
+| `theme` | `"auto"` / `"light"` / `"dark"` / `"system"` | Color theme (default: `"auto"`) |
 | `pixel-ratio` | number | Canvas resolution multiplier |
 | `styled` | `"true"` / `"false"` | Border-radius/box-shadow decoration |
 | `layout` | `"fullscreen"` / `"default"` | Layout mode |
 
-### Size Presets
+### Sizing
 
-The `size` attribute applies default styles. Explicit inline `style` attributes override these.
-
-| Preset | Styles |
-|--------|--------|
-| `wide` | `width:100%; aspect-ratio:16/9` |
-| `square` | `width:100%; aspect-ratio:1/1; max-width:600px; margin:0 auto` |
-| `square-sm` | `width:100%; aspect-ratio:1/1; max-width:400px; margin:0 auto` |
-| `banner` | `width:100%; aspect-ratio:3/1` |
-| `tall` | `width:100%; aspect-ratio:3/4; max-width:500px; margin:0 auto` |
+The `<shader-sandbox>` element is `display: block; width: 100%; height: 100%` — it fills whatever container you put it in. Sizing is the host's concern:
 
 ```html
-<shader-sandbox src="/shaders/heatmap.glsl" size="square" static></shader-sandbox>
+<!-- Inline styles -->
+<shader-sandbox src="/shaders/heatmap.glsl" static
+  style="width: 100%; aspect-ratio: 1/1; max-width: 600px; margin: 0 auto;"
+></shader-sandbox>
+
+<!-- Or use a wrapper component / CSS class -->
+<div class="shader-square">
+  <shader-sandbox src="/shaders/heatmap.glsl" static></shader-sandbox>
+</div>
 ```
 
 ### Lazy Loading
@@ -585,7 +605,7 @@ import { loadFromFolder, loadFromSource } from 'shader-sandbox/runtime';
 // Load from a folder or .glsl URL
 const handle = await loadFromFolder(element, '/shaders/mandelbrot/', {
   controls: false,
-  theme: 'dark',
+  theme: 'dark',  // 'auto' (default), 'light', 'dark', 'system'
 });
 
 // Load from inline GLSL source (synchronous)
@@ -659,7 +679,7 @@ Use the `{{< shader-sandbox >}}` shortcode in any `.qmd` file:
 
 A bare name like `mandelbrot` resolves to `/shaders/mandelbrot/`. Paths starting with `/` are used as-is.
 
-Mount options are passed as shortcode attributes — the same ones supported by the `<shader-sandbox>` element (`controls`, `theme`, `start-paused`, `layout`, `pixel-ratio`, etc.).
+Mount options are passed as shortcode attributes — the same ones supported by the `<shader-sandbox>` element (`controls`, `theme`, `start-paused`, `layout`, `pixel-ratio`, etc.). The default theme is `"auto"`, which inherits the page's styling.
 
 The `shader-sandbox.js` script is only included on pages that actually use the shortcode — no extra weight on pages that don't have shaders.
 
@@ -704,7 +724,7 @@ const handle = mount(document.getElementById('shader-container'), {
   pixelRatio: 2,       // canvas resolution multiplier
   layout: 'fullscreen', // override layout from config
   controls: false,     // hide playback controls
-  theme: 'dark',       // override theme
+  theme: 'dark',       // override theme ('auto', 'light', 'dark', 'system')
   startPaused: true,   // start paused
 });
 

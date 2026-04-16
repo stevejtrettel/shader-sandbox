@@ -37,7 +37,9 @@ import { exportHTML as exportHTMLFile } from './exportHTML';
 import { Recorder } from './Recorder';
 import { StatsPanel } from './StatsPanel';
 import { PlaybackControls } from './PlaybackControls';
-import { RenderDialog, RenderRequest } from './RenderDialog';
+import { ScreenshotPanel } from './ScreenshotPanel';
+import { RecordingPanel, RecordingRequest } from './RecordingPanel';
+import { Mp4Encoder } from './Mp4Encoder';
 
 export class App {
   private container: HTMLElement;
@@ -57,6 +59,7 @@ export class App {
   // Playback controls
   private playbackControls: PlaybackControls | null = null;
   private isPaused: boolean = false;
+  private _pauseAfterFirstFrame: boolean = false;
 
   // Visibility observer (auto-pause when off-screen)
   private intersectionObserver: IntersectionObserver;
@@ -173,6 +176,10 @@ export class App {
         this.statsPanel?.updateResolution(w, h);
         this.startTime = performance.now() / 1000;
         this.pausedElapsedTime = 0;
+        // Re-render when resized while paused so the canvas isn't stale
+        if (this.isPaused) {
+          this.primaryView.step(0);
+        }
       };
 
       this.primaryView.onContextRestored = () => {
@@ -194,16 +201,16 @@ export class App {
       this.playbackControls = new PlaybackControls(this.container, {
         onTogglePlayPause: () => this.togglePlayPause(),
         onReset: () => this.reset(),
-        onScreenshot: () => this.screenshot(),
+        onScreenshot: () => this.openScreenshotPanel(),
         onToggleRecording: () => this.toggleRecording(),
         onExportHTML: () => this.exportHTML(),
-        onRender: () => this.openRenderDialog(),
+        onRender: () => this.openRecordingPanel(),
       });
     }
 
-    // Handle startPaused option
+    // Handle startPaused option — defer pause until after the first frame renders
     if (this.project.startPaused) {
-      this.isPaused = true;
+      this._pauseAfterFirstFrame = true;
       this.playbackControls?.setPaused(true);
     }
 
@@ -455,6 +462,13 @@ export class App {
     } else {
       this.primaryView.step(elapsedTime);
     }
+
+    // startPaused: render one frame then pause
+    if (this._pauseAfterFirstFrame) {
+      this._pauseAfterFirstFrame = false;
+      this.isPaused = true;
+      this.playbackControls?.setPaused(true);
+    }
   };
 
   // ===========================================================================
@@ -491,6 +505,7 @@ export class App {
   // Screenshots & Recording
   // ===========================================================================
 
+  /** Quick screenshot at current canvas size (S key shortcut). */
   screenshot(): void {
     const folderName = this.project.root.split('/').pop() || 'shader';
     const now = new Date();
@@ -524,29 +539,163 @@ export class App {
     this.recorder.toggle(this.isPaused, () => this.togglePlayPause());
   }
 
-  // ===========================================================================
-  // HTML Export
-  // ===========================================================================
-
-  exportHTML(): void {
-    if (this.isMultiView) {
-      console.warn('HTML export is not supported for multi-view projects');
-      return;
-    }
-    exportHTMLFile(this.project as ShaderProject, this.primaryView.engine);
+  /** Check if this shader has feedback buffer passes. */
+  private hasBufferPasses(): boolean {
+    if (this.isMultiView) return false;
+    const project = this.project as ShaderProject;
+    return !!(project.passes.BufferA || project.passes.BufferB ||
+              project.passes.BufferC || project.passes.BufferD);
   }
 
-  openRenderDialog(): void {
-    const dialog = new RenderDialog(
+  /** Get current elapsed shader time. */
+  private getCurrentTime(): number {
+    return performance.now() / 1000 - this.startTime;
+  }
+
+  // ===========================================================================
+  // Screenshot Panel
+  // ===========================================================================
+
+  openScreenshotPanel(): void {
+    // Remember pause state so we can restore it when panel closes
+    const wasPaused = this.isPaused;
+
+    new ScreenshotPanel(
       this.container,
       this.primaryView.canvas.width,
       this.primaryView.canvas.height,
-      (req) => this.renderOffline(req),
+      this.project.uniforms,
+      {
+        renderPreviewAtTime: (time) => {
+          // Non-buffer shader: jump directly to time
+          this.primaryView.engine.reset();
+          this.primaryView.engine.step(time, [0, 0, 0, 0], false);
+          this.primaryView.presentToScreen();
+        },
+
+        renderPreviewStepped: async (time, fps, onProgress) => {
+          const engine = this.primaryView.engine;
+          engine.reset();
+          if (this.scriptAPI && this.project.script?.setup) {
+            try { this.project.script.setup(this.scriptAPI); } catch { /* ignore */ }
+          }
+
+          const totalFrames = Math.ceil(time * fps);
+          for (let f = 0; f <= totalFrames; f++) {
+            this.stepForRender(f, fps, 0);
+            if (f % 100 === 0) {
+              onProgress(f, totalFrames);
+              await new Promise(r => setTimeout(r, 0));
+            }
+          }
+          this.primaryView.presentToScreen();
+          onProgress(totalFrames, totalFrames);
+          return true;
+        },
+
+        captureScreenshot: async (opts) => {
+          const canvas = this.primaryView.canvas;
+          const engine = this.primaryView.engine;
+          const origW = canvas.width;
+          const origH = canvas.height;
+
+          try {
+            // Resize to target resolution
+            canvas.width = opts.width;
+            canvas.height = opts.height;
+            engine.resize(opts.width, opts.height);
+            engine.reset();
+
+            if (this.scriptAPI && this.project.script?.setup) {
+              try { this.project.script.setup(this.scriptAPI); } catch { /* ignore */ }
+            }
+
+            if (opts.hasBuffers) {
+              // Step through all frames to target time
+              const fps = 60;
+              const totalFrames = Math.ceil(opts.time * fps);
+              for (let f = 0; f <= totalFrames; f++) {
+                this.stepForRender(f, fps, 0);
+                if (f % 100 === 0) {
+                  opts.onProgress(f, totalFrames);
+                  await new Promise(r => setTimeout(r, 0));
+                }
+              }
+              opts.onProgress(totalFrames, totalFrames);
+            } else {
+              // Jump directly
+              engine.step(opts.time, [0, 0, 0, 0], false);
+            }
+
+            this.primaryView.presentToScreen();
+
+            // Capture
+            return await new Promise<Blob>((resolve, reject) => {
+              canvas.toBlob(
+                (b) => b ? resolve(b) : reject(new Error('Failed to capture')),
+                'image/png',
+              );
+            });
+          } finally {
+            // Restore original canvas size
+            canvas.width = origW;
+            canvas.height = origH;
+            engine.resize(origW, origH);
+            engine.reset();
+            if (this.scriptAPI && this.project.script?.setup) {
+              try { this.project.script.setup(this.scriptAPI); } catch { /* ignore */ }
+            }
+            // Re-render preview at current slider time so canvas isn't blank
+            if (!this.hasBufferPasses()) {
+              const currentSliderTime = this.getCurrentTime(); // approximate
+              this.primaryView.engine.step(currentSliderTime, [0, 0, 0, 0], false);
+              this.primaryView.presentToScreen();
+            }
+          }
+        },
+
+        getCurrentTime: () => this.getCurrentTime(),
+        hasBufferPasses: () => this.hasBufferPasses(),
+        setUniformValue: (name, value) => this.setUniformValue(name, value),
+
+        pause: () => {
+          // Record current elapsed time and pause
+          if (!this.isPaused) {
+            this.pausedElapsedTime = performance.now() / 1000 - this.startTime;
+          }
+          this.isPaused = true;
+        },
+
+        resume: () => {
+          // Restore original pause state
+          if (!wasPaused) {
+            this.startTime = performance.now() / 1000 - this.pausedElapsedTime;
+            this.isPaused = false;
+          }
+        },
+      },
     );
-    dialog.open();
   }
 
-  private renderOffline(req: RenderRequest): () => void {
+  // ===========================================================================
+  // Recording Panel
+  // ===========================================================================
+
+  openRecordingPanel(): void {
+    new RecordingPanel(
+      this.container,
+      this.primaryView.canvas.width,
+      this.primaryView.canvas.height,
+      this.project.uniforms,
+      {
+        startRecording: (req) => this.handleRecording(req),
+        hasBufferPasses: () => this.hasBufferPasses(),
+        setUniformValue: (name, value) => this.setUniformValue(name, value),
+      },
+    );
+  }
+
+  private handleRecording(req: RecordingRequest): () => void {
     let cancelled = false;
     const cancel = () => { cancelled = true; };
 
@@ -569,12 +718,27 @@ export class App {
           this.project.script.setup(this.scriptAPI);
         }
 
+        // Warm-up phase: step to startTime if needed
+        if (req.startTime > 0) {
+          const warmupFrames = Math.ceil(req.startTime * req.fps);
+          for (let f = 0; f < warmupFrames; f++) {
+            if (cancelled) return;
+            this.stepForRender(f, req.fps, 0);
+            if (f % 100 === 0) {
+              req.onProgress('Warming up', f, warmupFrames);
+              await new Promise(r => setTimeout(r, 0));
+            }
+          }
+        }
+
         const totalFrames = Math.ceil(req.fps * req.duration);
 
-        if (req.format === 'video') {
-          await this.renderVideoFrames(totalFrames, req.fps, () => cancelled, req.onProgress);
+        if (req.format === 'mp4') {
+          await this.renderMp4Frames(totalFrames, req.fps, req.startTime, req.quality, () => cancelled, (f, t) => req.onProgress('Recording', f, t));
+        } else if (req.format === 'webm') {
+          await this.renderWebmFrames(totalFrames, req.fps, req.startTime, () => cancelled, (f, t) => req.onProgress('Recording', f, t));
         } else {
-          await this.renderPngFrames(totalFrames, req.fps, () => cancelled, req.onProgress);
+          await this.renderPngFrames(totalFrames, req.fps, req.startTime, () => cancelled, (f, t) => req.onProgress('Recording', f, t));
         }
 
         if (!cancelled) req.onComplete();
@@ -596,8 +760,24 @@ export class App {
     return cancel;
   }
 
+  // ===========================================================================
+  // HTML Export
+  // ===========================================================================
+
+  exportHTML(): void {
+    if (this.isMultiView) {
+      console.warn('HTML export is not supported for multi-view projects');
+      return;
+    }
+    exportHTMLFile(this.project as ShaderProject, this.primaryView.engine);
+  }
+
+  // ===========================================================================
+  // Render Helpers
+  // ===========================================================================
+
   private async renderPngFrames(
-    totalFrames: number, fps: number,
+    totalFrames: number, fps: number, startTime: number,
     isCancelled: () => boolean,
     onProgress: (frame: number, total: number) => void,
   ): Promise<void> {
@@ -611,7 +791,7 @@ export class App {
     for (let frame = 0; frame < totalFrames; frame++) {
       if (isCancelled()) return;
 
-      this.stepForRender(frame, fps);
+      this.stepForRender(frame, fps, startTime);
       this.primaryView.presentToScreen();
 
       const blob = await new Promise<Blob>((resolve, reject) => {
@@ -636,8 +816,8 @@ export class App {
     }
   }
 
-  private async renderVideoFrames(
-    totalFrames: number, fps: number,
+  private async renderWebmFrames(
+    totalFrames: number, fps: number, startTime: number,
     isCancelled: () => boolean,
     onProgress: (frame: number, total: number) => void,
   ): Promise<void> {
@@ -660,7 +840,7 @@ export class App {
     for (let frame = 0; frame < totalFrames; frame++) {
       if (isCancelled()) { recorder.stop(); await done; return; }
 
-      this.stepForRender(frame, fps);
+      this.stepForRender(frame, fps, startTime);
       this.primaryView.presentToScreen();
       ctx.drawImage(canvas, 0, 0);
 
@@ -683,8 +863,44 @@ export class App {
     URL.revokeObjectURL(url);
   }
 
-  private stepForRender(frame: number, fps: number): void {
-    const time = frame / fps;
+  private async renderMp4Frames(
+    totalFrames: number, fps: number, startTime: number,
+    quality: string,
+    isCancelled: () => boolean,
+    onProgress: (frame: number, total: number) => void,
+  ): Promise<void> {
+    const canvas = this.primaryView.canvas;
+    const encoder = new Mp4Encoder(canvas.width, canvas.height, fps, quality);
+    await encoder.init();
+
+    try {
+      for (let frame = 0; frame < totalFrames; frame++) {
+        if (isCancelled()) { encoder.dispose(); return; }
+
+        this.stepForRender(frame, fps, startTime);
+        this.primaryView.presentToScreen();
+
+        await encoder.addFrame(canvas);
+
+        onProgress(frame + 1, totalFrames);
+        if (frame % 10 === 0) await new Promise(r => setTimeout(r, 0));
+      }
+
+      const blob = await encoder.finish();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `render_${canvas.width}x${canvas.height}_${fps}fps.mp4`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      encoder.dispose();
+      throw e;
+    }
+  }
+
+  private stepForRender(frame: number, fps: number, startTime: number): void {
+    const time = startTime + frame / fps;
     const deltaTime = 1 / fps;
 
     if (this.scriptAPI && this.project.script?.onFrame) {

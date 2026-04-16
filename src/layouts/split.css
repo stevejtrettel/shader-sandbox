@@ -46,7 +46,7 @@
   border: none;
   border-radius: 6px 6px 0 0;
   font-size: 13px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
   color: var(--tab-text);
@@ -107,7 +107,7 @@
   padding: 16px;
   font-size: 13px;
   line-height: 1.5;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   background: var(--code-bg);
   color: var(--code-text);
 }

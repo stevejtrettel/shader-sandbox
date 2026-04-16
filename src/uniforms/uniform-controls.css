@@ -72,14 +72,14 @@
 }
 
 .uniform-control-label {
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .uniform-control-value {
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
   background: var(--bg-tertiary);
@@ -324,7 +324,7 @@
 }
 
 .uniform-control-vec-component {
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);

@@ -12,7 +12,7 @@
  * Also registers the <shader-sandbox> custom element:
  *   <shader-sandbox src="/shaders/mandelbrot/" controls="false"></shader-sandbox>
  *   <shader-sandbox src="/shaders/heatmap.glsl" static></shader-sandbox>
- *   <shader-sandbox size="square">void mainImage(...) { ... }</shader-sandbox>
+ *   <shader-sandbox>void mainImage(...) { ... }</shader-sandbox>
  */
 
 import { mount as coreMount, MountHandle, MountPresentationOptions } from './mount';
@@ -135,6 +135,11 @@ export async function loadFromFolder(
   url: string,
   options?: MountPresentationOptions,
 ): Promise<MountHandle> {
+  // Normalize root-relative paths to absolute URLs
+  if (!/^https?:\/\//.test(url)) {
+    url = new URL(url, document.baseURI).href;
+  }
+
   // Single-file mode: URL points directly to a .glsl or .frag file
   if (/\.(glsl|frag)$/i.test(url)) {
     const res = await fetch(url);
@@ -174,23 +179,11 @@ export function loadFromSource(
 export type { MountHandle, MountPresentationOptions };
 
 // =============================================================================
-// Size Presets
-// =============================================================================
-
-const SIZE_PRESETS: Record<string, Record<string, string>> = {
-  wide:         { width: '100%', aspectRatio: '16/9' },
-  square:       { width: '100%', aspectRatio: '1/1', maxWidth: '600px', margin: '0 auto' },
-  'square-sm':  { width: '100%', aspectRatio: '1/1', maxWidth: '400px', margin: '0 auto' },
-  banner:       { width: '100%', aspectRatio: '3/1' },
-  tall:         { width: '100%', aspectRatio: '3/4', maxWidth: '500px', margin: '0 auto' },
-};
-
-// =============================================================================
 // <shader-sandbox> Custom Element
 // =============================================================================
 
 const RESERVED = new Set([
-  'src', 'fullpage', 'lazy', 'size', 'static',
+  'src', 'fullpage', 'lazy', 'static',
   'style', 'class', 'id', 'slot', 'is',
 ]);
 
@@ -225,17 +218,6 @@ class ShaderSandbox extends HTMLElement {
     // Save and clear inline GLSL so it doesn't render as visible text
     if (inlineGlsl) {
       this.textContent = '';
-    }
-
-    // Apply size preset defaults (explicit style attributes override these)
-    const sizePreset = this.getAttribute('size');
-    if (sizePreset && SIZE_PRESETS[sizePreset]) {
-      for (const [prop, val] of Object.entries(SIZE_PRESETS[sizePreset])) {
-        const cssProp = prop.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
-        if (!this.style.getPropertyValue(cssProp)) {
-          (this.style as any)[prop] = val;
-        }
-      }
     }
 
     // Fullpage mode

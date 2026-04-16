@@ -43,7 +43,7 @@
   padding: 6px 10px;
   background: var(--glass-bg);
   color: var(--glass-text);
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
   border-radius: var(--glass-radius-sm);
@@ -97,7 +97,7 @@
 
 .stat-value {
   color: var(--glass-text);
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
@@ -105,7 +105,7 @@
 
 .stat-label {
   color: var(--glass-text-muted);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui);
   font-size: 9px;
   font-weight: 500;
   text-transform: uppercase;
@@ -264,7 +264,7 @@
 .error-title {
   font-size: 15px;
   font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -313,7 +313,7 @@
   font-size: 13px;
   font-weight: 600;
   color: #ffa726;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   margin-bottom: 10px;
   padding-bottom: 6px;
   border-bottom: 1px solid #2a2a2a;
@@ -327,7 +327,7 @@
   border-radius: 4px;
   color: #ff6b6b;
   font-size: 13px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   line-height: 1.6;
   overflow-x: auto;
   border: 1px solid #2a2a2a;
@@ -342,7 +342,7 @@
   border-radius: 4px;
   color: #b0b0b0;
   font-size: 12px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   line-height: 1.6;
   overflow-x: auto;
   border: 1px solid #2a2a2a;
@@ -408,14 +408,14 @@
   font-size: 18px;
   font-weight: 600;
   margin-bottom: 8px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui);
 }
 
 .context-lost-message {
   font-size: 14px;
   opacity: 0.7;
   margin-bottom: 20px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui);
 }
 
 .context-lost-reload {
@@ -428,7 +428,7 @@
   font-weight: 500;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui);
 }
 
 .context-lost-reload:hover {
@@ -473,7 +473,7 @@
 
 .recording-text {
   color: white;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -509,7 +509,7 @@
   padding: 8px 16px;
   border-radius: 6px;
   font-size: 13px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-ui);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -581,7 +581,7 @@
 .script-error-title {
   font-size: 13px;
   font-weight: 600;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -615,7 +615,7 @@
   padding: 10px 14px;
   color: #ffab91;
   font-size: 12px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -628,7 +628,7 @@
   padding: 6px 14px 10px;
   color: #888;
   font-size: 11px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;
@@ -644,7 +644,7 @@
   padding: 6px 10px;
   background: var(--glass-bg);
   color: var(--glass-text);
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   border-radius: var(--glass-radius-sm);
   border: var(--glass-border);

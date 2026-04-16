@@ -1,0 +1,40 @@
+{
+  "title": "Möbius Transformations",
+  "description": "Drag to rotate the sphere, then distort with Möbius (Blaschke factor)",
+  "layout": "default",
+  "controls": true,
+  "textures": {
+    "envMap": "./equirect.jpg"
+  },
+  "uniforms": {
+    "uRotation": {
+      "type": "vec2",
+      "value": [0.0, 0.0],
+      "hidden": true
+    },
+    "uDistort": {
+      "type": "float",
+      "value": 0.0,
+      "min": -0.99,
+      "max": 0.99,
+      "step": 0.01,
+      "label": "Distortion"
+    },
+    "uDistortAngle": {
+      "type": "float",
+      "value": 0.0,
+      "min": -3.14159,
+      "max": 3.14159,
+      "step": 0.01,
+      "label": "Distortion Angle"
+    },
+    "uSpin": {
+      "type": "float",
+      "value": 0.0,
+      "min": -3.14159,
+      "max": 3.14159,
+      "step": 0.01,
+      "label": "Spin"
+    }
+  }
+}

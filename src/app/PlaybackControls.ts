@@ -101,7 +101,7 @@ export class PlaybackControls {
     // Render button
     const renderButton = document.createElement('button');
     renderButton.className = 'control-button';
-    renderButton.title = 'Render';
+    renderButton.title = 'Record';
     renderButton.innerHTML = `
       <svg viewBox="0 0 16 16">
         <path d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h12v2H2v-2z"/>

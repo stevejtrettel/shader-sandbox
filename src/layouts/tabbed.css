@@ -57,7 +57,7 @@
   border: none;
   border-bottom: 2px solid transparent;
   font-size: 12px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
   color: var(--tab-text);
@@ -75,7 +75,7 @@
 }
 
 .tabbed-tab-button.shader-tab {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .tabbed-tab-button.image-tab {
@@ -136,7 +136,7 @@
   padding: 16px 16px 16px 0;
   font-size: 13px;
   line-height: 1.6;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   background: var(--code-bg);
   color: var(--code-text);
   display: flex;
@@ -291,7 +291,7 @@
   background: var(--error-bg);
   color: var(--error-text);
   padding: 10px 14px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   white-space: pre-wrap;
   overflow: auto;
@@ -307,7 +307,7 @@
   color: var(--code-text);
   border: none;
   padding: 12px;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   resize: none;
   outline: none;

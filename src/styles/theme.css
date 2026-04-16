@@ -1,13 +1,140 @@
 /**
- * Theme Variables - Centralized theming for light/dark/system modes
+ * Theme Variables - Centralized theming for all modes
  *
- * Usage: Apply [data-theme="light"], [data-theme="dark"], or [data-theme="system"] to html element
- * System mode uses prefers-color-scheme media query
+ * Modes:
+ *   - 'auto': Host mode — inherits page fonts/colors, auto-detects light/dark for syntax
+ *   - 'light': Self-styled light theme
+ *   - 'dark': Self-styled dark theme
+ *   - 'system': Self-styled, follows OS preference (prefers-color-scheme)
+ *
+ * Usage: mount() sets [data-theme] on the container element (never on :root).
  */
 
-/* ===== Light Theme (Default) ===== */
-:root,
+/* ===== Auto / Host Mode (default) ===== */
+/* Inherits page fonts and colors. Only code editor + syntax have opaque values. */
+[data-theme="auto"] {
+  /* Fonts — inherit from page */
+  --font-mono: monospace;
+  --font-ui: inherit;
+
+  /* Background colors — transparent, page shows through */
+  --bg-primary: transparent;
+  --bg-secondary: transparent;
+  --bg-tertiary: transparent;
+  --bg-canvas: #000000;
+
+  /* Text colors — derived from inherited color */
+  --text-primary: currentColor;
+  --text-secondary: color-mix(in srgb, currentColor 80%, transparent);
+  --text-muted: color-mix(in srgb, currentColor 60%, transparent);
+  --text-disabled: color-mix(in srgb, currentColor 40%, transparent);
+
+  /* Border colors — subtle, context-adaptive */
+  --border-primary: color-mix(in srgb, currentColor 15%, transparent);
+  --border-secondary: color-mix(in srgb, currentColor 25%, transparent);
+
+  /* Accent colors — sensible default, overridable by host */
+  --accent-primary: #4a9eff;
+  --accent-primary-hover: #3a8eef;
+  --accent-primary-active: #2a7edf;
+  --accent-secondary: #7c4dff;
+
+  /* Status colors — semi-transparent, work on any background */
+  --error-bg: rgba(204, 0, 0, 0.08);
+  --error-text: #cc0000;
+  --error-border: rgba(204, 0, 0, 0.2);
+  --success-bg: rgba(76, 175, 80, 0.08);
+  --success-text: #4caf50;
+  --success-border: rgba(76, 175, 80, 0.2);
+
+  /* Overlay colors */
+  --overlay-bg: rgba(0, 0, 0, 0.75);
+  --overlay-backdrop: rgba(0, 0, 0, 0.95);
+
+  /* Shadow — none in host mode */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+
+  /* Code viewer / Editor — light mode defaults */
+  --code-bg: #fafafa;
+  --code-text: #1e1e1e;
+  --code-line-number: #999999;
+  --code-line-border: #e0e0e0;
+  --code-selection: rgba(173, 214, 255, 0.4);
+
+  /* Syntax highlighting — light mode */
+  --syntax-comment: #6a9955;
+  --syntax-keyword: #0000ff;
+  --syntax-string: #a31515;
+  --syntax-number: #098658;
+  --syntax-operator: #1e1e1e;
+  --syntax-function: #795e26;
+  --syntax-class: #267f99;
+  --syntax-punctuation: #1e1e1e;
+
+  /* Tab bar — transparent, text-adaptive */
+  --tab-bg: transparent;
+  --tab-text: color-mix(in srgb, currentColor 60%, transparent);
+  --tab-text-hover: color-mix(in srgb, currentColor 80%, transparent);
+  --tab-text-active: currentColor;
+  --tab-border-active: currentColor;
+
+  /* Buttons — transparent with subtle borders */
+  --button-bg: transparent;
+  --button-border: color-mix(in srgb, currentColor 25%, transparent);
+  --button-text: currentColor;
+  --button-bg-hover: color-mix(in srgb, currentColor 10%, transparent);
+  --button-border-hover: color-mix(in srgb, currentColor 40%, transparent);
+  --button-text-hover: currentColor;
+
+  /* Recompile button */
+  --recompile-bg: color-mix(in srgb, currentColor 10%, transparent);
+  --recompile-text: currentColor;
+  --recompile-bg-hover: color-mix(in srgb, currentColor 15%, transparent);
+  --recompile-bg-active: color-mix(in srgb, currentColor 20%, transparent);
+
+  /* Image viewer */
+  --image-viewer-bg: transparent;
+
+  /* Pane decoration — none in host mode */
+  --pane-radius: 0;
+  --pane-shadow: none;
+}
+
+/* Auto mode dark override — switches code editor + syntax for dark pages */
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] {
+    --error-bg: rgba(255, 107, 107, 0.1);
+    --error-text: #ff6b6b;
+    --error-border: rgba(255, 107, 107, 0.25);
+    --success-bg: rgba(107, 207, 107, 0.1);
+    --success-text: #6bcf6b;
+    --success-border: rgba(107, 207, 107, 0.25);
+
+    --code-bg: #1e1e1e;
+    --code-text: #d4d4d4;
+    --code-line-number: #858585;
+    --code-line-border: #3a3a3a;
+    --code-selection: rgba(38, 79, 120, 0.6);
+
+    --syntax-comment: #6a9955;
+    --syntax-keyword: #569cd6;
+    --syntax-string: #ce9178;
+    --syntax-number: #b5cea8;
+    --syntax-operator: #d4d4d4;
+    --syntax-function: #dcdcaa;
+    --syntax-class: #4ec9b0;
+    --syntax-punctuation: #d4d4d4;
+  }
+}
+
+/* ===== Light Theme (Self-styled) ===== */
 [data-theme="light"] {
+  /* Fonts */
+  --font-mono: 'Monaco', 'Menlo', 'Courier New', monospace;
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
   /* Background colors */
   --bg-primary: #f5f5f5;
   --bg-secondary: #ffffff;
@@ -88,13 +215,17 @@
   /* Image viewer */
   --image-viewer-bg: #f5f5f5;
 
-  /* Pane decoration (overridable by consumers via CSS custom properties) */
+  /* Pane decoration */
   --pane-radius: 8px;
   --pane-shadow: var(--shadow-lg), var(--shadow-sm);
 }
 
-/* ===== Dark Theme ===== */
+/* ===== Dark Theme (Self-styled) ===== */
 [data-theme="dark"] {
+  /* Fonts */
+  --font-mono: 'Monaco', 'Menlo', 'Courier New', monospace;
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
   /* Background colors */
   --bg-primary: #1a1a1a;
   --bg-secondary: #252525;
@@ -180,8 +311,12 @@
   --pane-shadow: var(--shadow-lg), var(--shadow-sm);
 }
 
-/* ===== System Theme (follows OS preference) ===== */
+/* ===== System Theme (follows OS preference, self-styled) ===== */
 [data-theme="system"] {
+  /* Fonts */
+  --font-mono: 'Monaco', 'Menlo', 'Courier New', monospace;
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
   /* Default to light theme variables */
   --bg-primary: #f5f5f5;
   --bg-secondary: #ffffff;

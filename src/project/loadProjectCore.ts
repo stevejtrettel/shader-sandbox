@@ -9,6 +9,7 @@
 import type { FileLoader } from './FileLoader';
 import {
   PassName,
+  ThemeMode,
   ChannelSource,
   Channels,
   ChannelJSONObject,
@@ -44,7 +45,7 @@ export interface ShaderProjectInput {
   author?: string;
   description?: string;
   layout?: 'fullscreen' | 'default' | 'split' | 'tabbed';
-  theme?: 'light' | 'dark' | 'system';
+  theme?: ThemeMode;
   controls?: boolean;
   startPaused?: boolean;
   pixelRatio?: number;

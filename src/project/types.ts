@@ -13,11 +13,12 @@ export type PassName = 'Image' | 'BufferA' | 'BufferB' | 'BufferC' | 'BufferD';
 
 /**
  * Theme mode for the shader viewer.
- * - 'light': Always use light theme
- * - 'dark': Always use dark theme
- * - 'system': Follow OS preference (prefers-color-scheme)
+ * - 'auto': Host mode — inherits page fonts/colors, auto-detects light/dark for syntax
+ * - 'light': Always use light theme (self-styled)
+ * - 'dark': Always use dark theme (self-styled)
+ * - 'system': Follow OS preference (self-styled)
  */
-export type ThemeMode = 'light' | 'dark' | 'system';
+export type ThemeMode = 'auto' | 'light' | 'dark' | 'system';
 
 // =============================================================================
 // Custom Uniform Definitions

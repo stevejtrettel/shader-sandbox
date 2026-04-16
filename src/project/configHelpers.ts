@@ -78,7 +78,7 @@ export const DEFAULT_LAYOUT = 'default' as const;
 export const DEFAULT_CONTROLS = true;
 
 /** Default theme. */
-export const DEFAULT_THEME = 'light' as const;
+export const DEFAULT_THEME = 'auto' as const;
 
 // =============================================================================
 // Config Validation
