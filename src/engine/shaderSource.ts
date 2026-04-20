@@ -5,8 +5,8 @@
  * with Shadertoy boilerplate, uniform declarations, and cubemap preprocessing.
  */
 
-import { ChannelSource, ArrayUniformDefinition, isArrayUniform } from '../project/types';
-import { glslTypeName } from './std140';
+import { ChannelSource, ArrayUniformDefinition, StructArrayUniformDefinition, isAnyUBOUniform } from '../project/types';
+import { glslTypeName, StructLayout } from './std140';
 import { LineMapping } from './ShaderEngine';
 
 // =============================================================================
@@ -96,8 +96,10 @@ bool isKeyToggled(int key) { return keyToggle(key) > 0.5; }
 /** Metadata about a UBO needed for shader source generation. */
 export interface UBOInfo {
   name: string;
-  def: ArrayUniformDefinition;
+  def: ArrayUniformDefinition | StructArrayUniformDefinition;
   count: number;
+  /** Present for struct array uniforms */
+  structLayout?: StructLayout;
 }
 
 /** Options for building a fragment shader. */
@@ -216,19 +218,33 @@ uniform vec2  iPinchCenter;         // Center point of pinch gesture
     }
   }
 
-  // Array uniform blocks (UBOs)
+  // UBO blocks (plain arrays and struct arrays)
   for (const ubo of opts.ubos) {
-    parts.push(`// Array uniform: ${ubo.name} (max ${ubo.count})`);
-    parts.push(`layout(std140) uniform _ub_${ubo.name} {`);
-    parts.push(`  ${glslTypeName(ubo.def.type)} ${ubo.name}[${ubo.count}];`);
-    parts.push(`};`);
+    if (ubo.structLayout) {
+      // Struct array: emit struct definition + uniform block
+      parts.push(`// Struct array uniform: ${ubo.name} (max ${ubo.count})`);
+      parts.push(`struct _st_${ubo.name} {`);
+      for (const field of ubo.structLayout.fields) {
+        parts.push(`  ${glslTypeName(field.type)} ${field.name};`);
+      }
+      parts.push(`};`);
+      parts.push(`layout(std140) uniform _ub_${ubo.name} {`);
+      parts.push(`  _st_${ubo.name} ${ubo.name}[${ubo.count}];`);
+      parts.push(`};`);
+    } else {
+      // Plain array uniform
+      parts.push(`// Array uniform: ${ubo.name} (max ${ubo.count})`);
+      parts.push(`layout(std140) uniform _ub_${ubo.name} {`);
+      parts.push(`  ${glslTypeName((ubo.def as ArrayUniformDefinition).type)} ${ubo.name}[${ubo.count}];`);
+      parts.push(`};`);
+    }
     parts.push(`uniform int ${ubo.name}_count;`);
     parts.push('');
   }
 
   // Scalar custom uniforms
   const scalarUniforms = Object.entries(opts.uniforms)
-    .filter(([, def]) => !isArrayUniform(def));
+    .filter(([, def]) => !isAnyUBOUniform(def));
   if (scalarUniforms.length > 0) {
     parts.push('// Custom uniforms');
     for (const [name, def] of scalarUniforms) {

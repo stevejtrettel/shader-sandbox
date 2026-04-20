@@ -72,6 +72,7 @@ export class App {
   private scriptAPI: ScriptEngineAPI | null = null;
   private scriptErrorCount: number = 0;
   private _lastOnFrameTime: number | null = null;
+  private _insideScriptSet: boolean = false;
   private static readonly MAX_SCRIPT_ERRORS = 10;
 
   // Recording
@@ -163,7 +164,7 @@ export class App {
         view.onContextRestored = () => {
           if (this.scriptAPI && this.project.script?.setup) {
             try {
-              this.project.script.setup(this.scriptAPI);
+              this.project.script.setup(this.scriptAPI, { isRestore: true });
             } catch (e) {
               console.error('script.js setup() threw during context restore:', e);
               this.primaryView.runtimeErrorOverlay.showError('setup', e);
@@ -185,7 +186,7 @@ export class App {
       this.primaryView.onContextRestored = () => {
         if (this.scriptAPI && this.project.script?.setup) {
           try {
-            this.project.script.setup(this.scriptAPI);
+            this.project.script.setup(this.scriptAPI, { isRestore: true });
           } catch (e) {
             console.error('script.js setup() threw during context restore:', e);
             this.primaryView.runtimeErrorOverlay.showError('setup', e);
@@ -229,7 +230,7 @@ export class App {
 
       if (this.project.script.setup && this.scriptAPI) {
         try {
-          this.project.script.setup(this.scriptAPI);
+          this.project.script.setup(this.scriptAPI, { isRestore: false });
         } catch (e) {
           console.error('script.js setup() threw:', e);
           this.primaryView.runtimeErrorOverlay.showError('setup', e);
@@ -280,6 +281,7 @@ export class App {
       passes: view.passes,
       textures: mvProject.textures,
       uniforms: mvProject.uniforms,
+      uniformData: mvProject.uniformData,
       script: null, // Script handled by App, not individual views
     };
   }
@@ -292,7 +294,11 @@ export class App {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     this.scriptAPI = {
-      setUniformValue: (name, value) => self.setUniformValue(name, value),
+      setUniformValue: (name, value) => {
+        self._insideScriptSet = true;
+        self.setUniformValue(name, value);
+        self._insideScriptSet = false;
+      },
       getUniformValue: (name) => self.primaryView.engine.getUniformValue(name),
       updateTexture: (name, w, h, data) => self.primaryView.engine.updateTexture(name, w, h, data),
       readPixels: (passName, x, y, w, h) => self.primaryView.engine.readPixels(passName as any, x, y, w, h),
@@ -301,6 +307,31 @@ export class App {
       setOverlay: (position, text, viewName?) => {
         const target = viewName ? self.views.get(viewName) : self.primaryView;
         target?.setOverlay(position, text);
+      },
+      setArrayUniform: (name, data) => {
+        for (const view of self.views.values()) {
+          view.engine.setArrayUniform(name, data);
+        }
+      },
+      setArrayElement: (name, index, value) => {
+        for (const view of self.views.values()) {
+          view.engine.setArrayElement(name, index, value);
+        }
+      },
+      setActiveCount: (name, count) => {
+        for (const view of self.views.values()) {
+          view.engine.setActiveCount(name, count);
+        }
+      },
+      setStructArrayUniform: (name, data) => {
+        for (const view of self.views.values()) {
+          view.engine.setStructArrayUniform(name, data);
+        }
+      },
+      setStructArrayElement: (name, index, data) => {
+        for (const view of self.views.values()) {
+          view.engine.setStructArrayElement(name, index, data);
+        }
       },
       // Multi-view extensions (undefined for single-view)
       getCrossViewState: self.isMultiView
@@ -353,10 +384,19 @@ export class App {
 
   /**
    * Set a uniform value across all views.
+   * Fires onUniformChange hook unless the call originated from the script itself.
    */
   setUniformValue(name: string, value: UniformValue): void {
     for (const view of this.views.values()) {
       view.engine.setUniformValue(name, value);
+    }
+    // Notify script of external changes (UI sliders, programmatic) — not its own writes
+    if (!this._insideScriptSet && this.scriptAPI && this.project.script?.onUniformChange) {
+      try {
+        this.project.script.onUniformChange(this.scriptAPI, name, value);
+      } catch (e) {
+        console.error(`script.js onUniformChange('${name}') threw:`, e);
+      }
     }
   }
 
@@ -577,7 +617,7 @@ export class App {
           const engine = this.primaryView.engine;
           engine.reset();
           if (this.scriptAPI && this.project.script?.setup) {
-            try { this.project.script.setup(this.scriptAPI); } catch { /* ignore */ }
+            try { this.project.script.setup(this.scriptAPI, { isRestore: true }); } catch { /* ignore */ }
           }
 
           const totalFrames = Math.ceil(time * fps);
@@ -607,7 +647,7 @@ export class App {
             engine.reset();
 
             if (this.scriptAPI && this.project.script?.setup) {
-              try { this.project.script.setup(this.scriptAPI); } catch { /* ignore */ }
+              try { this.project.script.setup(this.scriptAPI, { isRestore: true }); } catch { /* ignore */ }
             }
 
             if (opts.hasBuffers) {
@@ -643,7 +683,7 @@ export class App {
             engine.resize(origW, origH);
             engine.reset();
             if (this.scriptAPI && this.project.script?.setup) {
-              try { this.project.script.setup(this.scriptAPI); } catch { /* ignore */ }
+              try { this.project.script.setup(this.scriptAPI, { isRestore: true }); } catch { /* ignore */ }
             }
             // Re-render preview at current slider time so canvas isn't blank
             if (!this.hasBufferPasses()) {
@@ -715,7 +755,7 @@ export class App {
         engine.reset();
 
         if (this.scriptAPI && this.project.script?.setup) {
-          this.project.script.setup(this.scriptAPI);
+          this.project.script.setup(this.scriptAPI, { isRestore: true });
         }
 
         // Warm-up phase: step to startTime if needed
@@ -750,7 +790,7 @@ export class App {
         engine.resize(origW, origH);
         engine.reset();
         if (this.scriptAPI && this.project.script?.setup) {
-          try { this.project.script.setup(this.scriptAPI); } catch { /* ignore */ }
+          try { this.project.script.setup(this.scriptAPI, { isRestore: true }); } catch { /* ignore */ }
         }
         this.isPaused = wasPaused;
       }
@@ -957,6 +997,11 @@ export class App {
   dispose(): void {
     this.disposed = true;
     this.stop();
+    // Call script dispose before tearing down GL resources
+    if (this.project.script?.dispose) {
+      try { this.project.script.dispose(); }
+      catch (e) { console.error('script.js dispose() threw:', e); }
+    }
     for (const view of this.views.values()) {
       view.dispose();
     }

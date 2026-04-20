@@ -56,8 +56,10 @@ async function loadScript(
   const hooks: DemoScriptHooks = {};
   if (typeof mod.setup === 'function') hooks.setup = mod.setup;
   if (typeof mod.onFrame === 'function') hooks.onFrame = mod.onFrame;
+  if (typeof mod.dispose === 'function') hooks.dispose = mod.dispose;
+  if (typeof mod.onUniformChange === 'function') hooks.onUniformChange = mod.onUniformChange;
 
-  return (hooks.setup || hooks.onFrame) ? hooks : null;
+  return (hooks.setup || hooks.onFrame || hooks.dispose || hooks.onUniformChange) ? hooks : null;
 }
 
 // =============================================================================
@@ -248,6 +250,7 @@ async function loadMultiViewDemo(
     pixelRatio: config.pixelRatio ?? null,
     commonSource,
     uniforms: config.uniforms ?? {},
+    uniformData: {},
     textures: [],
     script,
     views,

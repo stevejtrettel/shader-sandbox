@@ -2,27 +2,13 @@
  * Projective Reflection Group — script.js
  *
  * Demonstrates passing a collection of mat3 matrices to the shader via UBO.
- *
- * How it works:
- *   1. Build three generator matrices M1, M2, M3 (depending on parameter d)
- *   2. Enumerate all products of generators (the "group orbit")
- *   3. Pack them into a Float32Array and send to the shader
- *
- * The shader receives:
- *   - matrices[128]      (mat3 UBO array)
- *   - matrices_count      (auto-injected by engine — how many are active)
+ * Uses onUniformChange to recompute only when the 'd' slider moves.
  */
 
 const MAX_MATRICES = 128;
 
 // ─── Matrix helpers ──────────────────────────────────────────────────────────
 
-/**
- * Multiply two 3x3 matrices (column-major flat arrays of 9 floats).
- *
- * Layout: [col0.x, col0.y, col0.z, col1.x, col1.y, col1.z, col2.x, col2.y, col2.z]
- * This matches GLSL's mat3() constructor order.
- */
 function mat3Multiply(A, B) {
   return [
     A[0]*B[0] + A[3]*B[1] + A[6]*B[2],
@@ -43,12 +29,6 @@ const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 // ─── Generator matrices ─────────────────────────────────────────────────────
 
-/**
- * Build three projective reflection matrices for parameter d.
- * These act on the affine patch z=1 and preserve a convex domain.
- *
- * All matrices are column-major flat arrays (matching GLSL mat3 layout).
- */
 function makeGenerators(d) {
   const s = Math.sqrt(3);
 
@@ -75,35 +55,21 @@ function makeGenerators(d) {
 
 // ─── Orbit enumeration ──────────────────────────────────────────────────────
 
-/**
- * Generate group elements by taking all products of generators.
- *
- * Since M1, M2, M3 are reflections (M_i^2 = I), we only need "reduced words":
- * sequences where no generator appears twice in a row.
- *
- * Uses breadth-first search so shorter words come first.
- * Stops when we reach MAX_MATRICES.
- */
 function generateOrbit(generators) {
   const results = [IDENTITY];
-
-  // Queue entries: { matrix, lastGenerator }
-  // lastGenerator tracks which generator was applied last, so we skip it next
   const queue = [];
 
-  // Seed with the three generators (word length 1)
   for (let g = 0; g < generators.length; g++) {
     results.push(generators[g]);
     queue.push({ matrix: generators[g], lastGenerator: g });
     if (results.length >= MAX_MATRICES) return results;
   }
 
-  // BFS: extend each word by one generator (skipping the previous one)
   while (queue.length > 0 && results.length < MAX_MATRICES) {
     const { matrix, lastGenerator } = queue.shift();
 
     for (let g = 0; g < generators.length; g++) {
-      if (g === lastGenerator) continue;  // skip: would cancel (reflection squared = identity)
+      if (g === lastGenerator) continue;
 
       const product = mat3Multiply(matrix, generators[g]);
       results.push(product);
@@ -116,35 +82,24 @@ function generateOrbit(generators) {
   return results;
 }
 
-// ─── Pack and send ──────────────────────────────────────────────────────────
+// ─── Recompute and send ─────────────────────────────────────────────────────
 
-/**
- * Pack an array of mat3 matrices into a flat Float32Array.
- *
- * Only packs the actual matrices (not the full MAX_MATRICES).
- * The engine expects tightly-packed data (9 floats per mat3, column-major)
- * and handles std140 padding automatically.
- */
-function packMat3Array(matrices) {
-  const data = new Float32Array(matrices.length * 9);
-  for (let i = 0; i < matrices.length; i++) {
-    data.set(matrices[i], i * 9);
-  }
-  return data;
-}
-
-// ─── Main hook ──────────────────────────────────────────────────────────────
-
-let lastD = -1;
-
-export function onFrame(engine) {
-  const d = engine.getUniformValue('d');
-  if (d === lastD) return;  // only recompute when d changes
-  lastD = d;
-
+function recompute(engine, d) {
   const generators = makeGenerators(d);
   const orbit = generateOrbit(generators);
+  engine.setArrayUniform('matrices', orbit);
+}
 
-  // Send only the actual orbit elements — engine auto-sets matrices_count
-  engine.setUniformValue('matrices', packMat3Array(orbit));
+// ─── Hooks ──────────────────────────────────────────────────────────────────
+
+export function setup(engine) {
+  // Compute initial orbit from slider default
+  const d = engine.getUniformValue('d');
+  recompute(engine, d);
+}
+
+export function onUniformChange(engine, name, value) {
+  if (name === 'd') {
+    recompute(engine, value);
+  }
 }

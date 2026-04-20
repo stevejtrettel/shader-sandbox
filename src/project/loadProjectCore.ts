@@ -20,6 +20,7 @@ import {
   UniformDefinitions,
   DemoScriptHooks,
   isArrayUniform,
+  isStructArrayUniform,
 } from './types';
 import {
   isPassName,
@@ -53,6 +54,7 @@ export interface ShaderProjectInput {
   passes: ShaderProject['passes'];
   textures?: ShaderTexture2D[];
   uniforms?: UniformDefinitions;
+  uniformData?: Record<string, unknown>;
   script?: DemoScriptHooks | null;
 }
 
@@ -78,6 +80,7 @@ export function buildShaderProject(input: ShaderProjectInput): ShaderProject {
     passes: input.passes,
     textures: input.textures ?? [],
     uniforms: input.uniforms ?? {},
+    uniformData: input.uniformData ?? {},
     script: input.script ?? null,
   };
 }
@@ -96,8 +99,23 @@ export function validateUniforms(uniforms: UniformDefinitions, root: string): vo
   for (const [name, def] of Object.entries(uniforms)) {
     const prefix = `Uniform '${name}' in '${root}'`;
 
-    if (!def.type) {
-      throw new Error(`${prefix}: missing 'type' field`);
+    if (isStructArrayUniform(def)) {
+      if (typeof def.struct !== 'object' || def.struct === null || Array.isArray(def.struct)) {
+        throw new Error(`${prefix}: 'struct' must be an object mapping field names to types`);
+      }
+      const fieldNames = Object.keys(def.struct);
+      if (fieldNames.length === 0) {
+        throw new Error(`${prefix}: struct must have at least one field`);
+      }
+      for (const [fieldName, fieldType] of Object.entries(def.struct)) {
+        if (!ARRAY_TYPES.has(fieldType)) {
+          throw new Error(`${prefix}: invalid struct field type '${fieldType}' for field '${fieldName}'. Expected one of: ${[...ARRAY_TYPES].join(', ')}`);
+        }
+      }
+      if (typeof def.count !== 'number' || def.count < 1 || !Number.isInteger(def.count)) {
+        throw new Error(`${prefix}: 'count' must be a positive integer, got ${def.count}`);
+      }
+      continue;
     }
 
     if (isArrayUniform(def)) {
@@ -110,7 +128,10 @@ export function validateUniforms(uniforms: UniformDefinitions, root: string): vo
       continue;
     }
 
-    // After excluding array uniforms, treat as a scalar definition.
+    // After excluding UBO uniforms, treat as a scalar definition.
+    if (!(def as any).type) {
+      throw new Error(`${prefix}: missing 'type' field`);
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const scalarDef = def as any;
 
@@ -164,6 +185,58 @@ export function validateUniforms(uniforms: UniformDefinitions, root: string): vo
       }
     }
   }
+}
+
+// =============================================================================
+// Static Data Loading for Array Uniforms
+// =============================================================================
+
+/**
+ * Resolve "data" paths in uniform definitions.
+ * Returns a map of uniform name → loaded data, separate from the definitions.
+ */
+async function loadUniformData(
+  loader: FileLoader,
+  root: string,
+  uniforms: UniformDefinitions,
+): Promise<Record<string, unknown>> {
+  const result: Record<string, unknown> = {};
+
+  for (const [name, def] of Object.entries(uniforms)) {
+    const dataProp = (def as any).data;
+    if (typeof dataProp !== 'string') continue;
+
+    const dataPath = loader.joinPath(root, dataProp);
+    if (!(await loader.exists(dataPath))) {
+      throw new Error(`Uniform '${name}': data file '${dataProp}' not found at '${dataPath}'`);
+    }
+
+    const raw = await loader.readText(dataPath);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err: any) {
+      throw new Error(`Uniform '${name}': invalid JSON in '${dataProp}': ${err?.message ?? String(err)}`);
+    }
+
+    if (isArrayUniform(def)) {
+      if (Array.isArray(parsed)) {
+        result[name] = parsed;
+      } else if (parsed && typeof parsed === 'object' && name in parsed) {
+        result[name] = parsed[name];
+      } else {
+        throw new Error(`Uniform '${name}': data file '${dataProp}' must be an array or contain key '${name}'`);
+      }
+    } else if (isStructArrayUniform(def)) {
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        result[name] = (name in parsed && typeof parsed[name] === 'object') ? parsed[name] : parsed;
+      } else {
+        throw new Error(`Uniform '${name}': data file '${dataProp}' must be an object with field data`);
+      }
+    }
+  }
+
+  return result;
 }
 
 // =============================================================================
@@ -466,15 +539,17 @@ async function loadStandardProject(
     textureUrlResolver?: (path: string) => Promise<string>;
   },
 ): Promise<ShaderProject> {
+  let uniformData: Record<string, unknown> = {};
   if (config.uniforms) {
     validateUniforms(config.uniforms, root);
+    uniformData = await loadUniformData(loader, root, config.uniforms);
   }
 
   const commonSource = await resolveCommonSource(loader, root, config.common);
 
   const buffersConfig = config.buffers ?? {};
   if (Object.keys(buffersConfig).length > 0 || (config.textures && Object.keys(config.textures).length > 0)) {
-    return loadStandardWithNamedBuffers(loader, root, config, commonSource, opts);
+    return loadStandardWithNamedBuffers(loader, root, config, commonSource, opts, uniformData);
   }
 
   // Simple single-pass standard project (config with settings only)
@@ -502,6 +577,7 @@ async function loadStandardProject(
       Image: { name: 'Image', glslSource: imageSource, channels: noChannels },
     },
     uniforms: config.uniforms,
+    uniformData,
     script: opts?.script,
   });
 }
@@ -521,6 +597,7 @@ async function loadStandardWithNamedBuffers(
     script?: DemoScriptHooks | null;
     textureUrlResolver?: (path: string) => Promise<string>;
   },
+  uniformData?: Record<string, unknown>,
 ): Promise<ShaderProject> {
   const buffersConfig = config.buffers ?? {};
   const bufferNames = Object.keys(buffersConfig);
@@ -617,6 +694,7 @@ async function loadStandardWithNamedBuffers(
     passes,
     textures: textureRegistry.toArray(),
     uniforms: config.uniforms,
+    uniformData,
     script: opts?.script,
   });
 }

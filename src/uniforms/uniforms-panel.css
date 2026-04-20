@@ -57,7 +57,7 @@
 /* Panel - uses shared glass variables */
 .uniforms-panel {
   width: 175px;
-  max-height: calc(100vh - 100px);
+  max-height: calc(100% - 80px);
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);

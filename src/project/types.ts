@@ -126,21 +126,55 @@ export interface ArrayUniformDefinition extends UniformDefinitionBase {
   type: ArrayUniformType;
   /** Number of elements in the array */
   count: number;
+  /** Path to a JSON file with initial data (loaded at project init) */
+  data?: string;
 }
 
 /**
- * Type guard: returns true if a uniform definition is an array uniform (has count).
+ * Field types allowed in struct array uniforms.
+ */
+export type StructFieldType = 'float' | 'vec2' | 'vec3' | 'vec4' | 'mat3' | 'mat4';
+
+/**
+ * Struct array uniform backed by a UBO.
+ * Each element is a struct with named fields of different types.
+ * Uses one binding point for all fields combined.
+ */
+export interface StructArrayUniformDefinition extends UniformDefinitionBase {
+  struct: Record<string, StructFieldType>;
+  /** Number of elements in the array */
+  count: number;
+  /** Path to a JSON file with initial data (loaded at project init) */
+  data?: string;
+}
+
+/**
+ * Type guard: returns true if a uniform definition is a plain array uniform (not struct).
  */
 export function isArrayUniform(def: UniformDefinition): def is ArrayUniformDefinition {
-  return 'count' in def && typeof (def as any).count === 'number';
+  return 'count' in def && typeof (def as any).count === 'number' && !('struct' in def);
+}
+
+/**
+ * Type guard: returns true if a uniform definition is a struct array uniform.
+ */
+export function isStructArrayUniform(def: UniformDefinition): def is StructArrayUniformDefinition {
+  return 'struct' in def && typeof (def as any).struct === 'object' && 'count' in def;
+}
+
+/**
+ * Type guard: returns true if a uniform definition is any UBO-backed uniform (array or struct array).
+ */
+export function isAnyUBOUniform(def: UniformDefinition): def is ArrayUniformDefinition | StructArrayUniformDefinition {
+  return isArrayUniform(def) || isStructArrayUniform(def);
 }
 
 /**
  * Returns true if a uniform should have a UI control.
- * Excludes array uniforms (UBOs) and hidden uniforms (script-only).
+ * Excludes UBO-backed uniforms and hidden uniforms (script-only).
  */
 export function hasUIControl(def: UniformDefinition): boolean {
-  return !isArrayUniform(def) && !def.hidden;
+  return !isAnyUBOUniform(def) && !def.hidden;
 }
 
 /**
@@ -153,7 +187,8 @@ export type UniformDefinition =
   | Vec2UniformDefinition
   | Vec3UniformDefinition
   | Vec4UniformDefinition
-  | ArrayUniformDefinition;
+  | ArrayUniformDefinition
+  | StructArrayUniformDefinition;
 
 /**
  * Map of uniform names to their definitions.
@@ -584,6 +619,12 @@ export interface ShaderProject {
   uniforms: UniformDefinitions;
 
   /**
+   * Pre-loaded initial data for array/struct uniforms (from "data" fields in config).
+   * Keys are uniform names, values are the data to pass to setArrayUniform/setStructArrayUniform.
+   */
+  uniformData: Record<string, unknown>;
+
+  /**
    * Demo script hooks (from script.js in demo folder).
    * Provides setup() and onFrame() callbacks for JS-driven computation.
    */
@@ -625,6 +666,7 @@ export interface MultiViewProject {
   pixelRatio: number | null;
   commonSource: string | null;
   uniforms: UniformDefinitions;
+  uniformData: Record<string, unknown>;
   textures: ShaderTexture2D[];
   script: DemoScriptHooks | null;
 
@@ -683,6 +725,41 @@ export interface ScriptEngineAPI {
    */
   setOverlay(position: OverlayPosition, text: string | null, viewName?: string): void;
 
+  /**
+   * Set an array uniform from structured JS arrays.
+   * The engine flattens and packs the data automatically based on the uniform's type.
+   * E.g. for a vec3 array: [[1,0,0], [0,1,0], [0,0,1]]
+   * For float arrays, also accepts a flat number[]: [1.0, 2.0, 3.0]
+   */
+  setArrayUniform(name: string, data: number[][] | number[]): void;
+
+  /**
+   * Set a single element of an array uniform by index.
+   * Only repacks and uploads that one element — much cheaper than resending the whole array.
+   * Value is a number[] matching the type's component count, or a single number for float arrays.
+   */
+  setArrayElement(name: string, index: number, value: number | number[]): void;
+
+  /**
+   * Set how many elements of an array uniform the shader should use (written to name_count).
+   * Allows using fewer elements than the buffer's max capacity without resending data.
+   */
+  setActiveCount(name: string, count: number): void;
+
+  /**
+   * Set a struct array uniform from per-field data.
+   * Each field is an array of elements matching the field's type.
+   * E.g. for struct { vec3 position; vec4 color; }:
+   *   { position: [[1,0,0], [0,1,0]], color: [[1,0,0,1], [0,1,0,1]] }
+   */
+  setStructArrayUniform(name: string, data: Record<string, number[][] | number[]>): void;
+
+  /**
+   * Set a single element of a struct array uniform by index.
+   * Each field value matches the field's type component count.
+   */
+  setStructArrayElement(name: string, index: number, data: Record<string, number | number[]>): void;
+
   // Multi-view extensions (undefined for single-view projects)
   /** Get cross-view state (mouse, resolution) from another view */
   getCrossViewState?(viewName: string): CrossViewState | undefined;
@@ -692,11 +769,15 @@ export interface ScriptEngineAPI {
 
 /**
  * Hooks exported by a demo's script.js file.
- * Both are optional — a script can export just setup, just onFrame, or both.
+ * All hooks are optional — a script can export any combination.
  */
 export interface DemoScriptHooks {
-  /** Called once after engine init, before the first frame */
-  setup?: (engine: ScriptEngineAPI) => void;
+  /** Called once after engine init, before the first frame. Also called on WebGL context restore. */
+  setup?: (engine: ScriptEngineAPI, context: { isRestore: boolean }) => void;
   /** Called every frame before shader execution */
   onFrame?: (engine: ScriptEngineAPI, time: number, deltaTime: number, frame: number) => void;
+  /** Called when the shader is destroyed — use to remove event listeners, cancel timers, etc. */
+  dispose?: () => void;
+  /** Called when a uniform changes from outside the script (e.g. UI sliders). Not called for script's own setUniformValue calls. */
+  onUniformChange?: (engine: ScriptEngineAPI, name: string, value: UniformValue) => void;
 }

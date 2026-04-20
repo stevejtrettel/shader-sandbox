@@ -88,14 +88,27 @@ function createFetchFileLoader(baseUrl: string): FileLoader {
 // =============================================================================
 
 async function loadScript(baseUrl: string): Promise<DemoScriptHooks | null> {
+  const scriptUrl = new URL('script.js', baseUrl).href;
+
+  // Check if script.js exists before attempting import
   try {
-    const scriptUrl = new URL('script.js', baseUrl).href;
+    const head = await fetch(scriptUrl, { method: 'HEAD' });
+    if (!head.ok) return null; // No script for this demo — that's fine
+  } catch {
+    return null; // Network error or CORS — no script available
+  }
+
+  // Script exists — import it, and surface real errors
+  try {
     const mod = await import(/* @vite-ignore */ scriptUrl);
     const hooks: DemoScriptHooks = {};
     if (typeof mod.setup === 'function') hooks.setup = mod.setup;
     if (typeof mod.onFrame === 'function') hooks.onFrame = mod.onFrame;
-    return (hooks.setup || hooks.onFrame) ? hooks : null;
-  } catch {
+    if (typeof mod.dispose === 'function') hooks.dispose = mod.dispose;
+    if (typeof mod.onUniformChange === 'function') hooks.onUniformChange = mod.onUniformChange;
+    return (hooks.setup || hooks.onFrame || hooks.dispose || hooks.onUniformChange) ? hooks : null;
+  } catch (e) {
+    console.error(`[shader-sandbox] Failed to load script: ${scriptUrl}`, e);
     return null;
   }
 }
@@ -182,6 +195,109 @@ export type { MountHandle, MountPresentationOptions };
 // <shader-sandbox> Custom Element
 // =============================================================================
 
+const RUNTIME_CSS = `
+.ss-loading {
+  position: absolute;
+  inset: 0;
+  background: #111;
+  border-radius: inherit;
+  overflow: hidden;
+}
+.ss-loading__shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,0.03) 45%,
+    rgba(255,255,255,0.06) 50%,
+    rgba(255,255,255,0.03) 55%,
+    transparent 100%
+  );
+  animation: ss-shimmer 2s ease-in-out infinite;
+}
+@keyframes ss-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.ss-error {
+  position: absolute;
+  inset: 0;
+  background: #111;
+  border-radius: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2em;
+}
+.ss-error__card {
+  display: flex;
+  max-width: 480px;
+  width: 100%;
+  background: #1a1a1a;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+.ss-error__accent {
+  width: 4px;
+  flex-shrink: 0;
+  background: #c44;
+}
+.ss-error__body {
+  padding: 1.25em 1.5em;
+  flex: 1;
+  min-width: 0;
+}
+.ss-error__title {
+  font: 600 14px/1 system-ui, sans-serif;
+  color: #e0e0e0;
+  margin-bottom: 0.75em;
+}
+.ss-error__message {
+  font: 12px/1.5 'Monaco','Menlo',monospace;
+  color: #ff6b6b;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0 0 1em;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.ss-error__retry {
+  font: 500 12px/1 system-ui, sans-serif;
+  color: #aaa;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 0.5em 1em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ss-error__retry:hover {
+  background: #3a3a3a;
+  color: #ddd;
+}
+.ss-fade-in {
+  animation: ss-fade-in 0.3s ease-in;
+}
+@keyframes ss-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+`;
+
+function injectStyles(): void {
+  if (document.getElementById('shader-sandbox-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'shader-sandbox-styles';
+  style.textContent = RUNTIME_CSS;
+  document.head.appendChild(style);
+}
+
+function escapeHTML(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 const RESERVED = new Set([
   'src', 'fullpage', 'lazy', 'static',
   'style', 'class', 'id', 'slot', 'is',
@@ -205,6 +321,7 @@ class ShaderSandbox extends HTMLElement {
   private _mounted: boolean = false;
   private _loading: boolean = false;
   private _placeholder: HTMLElement | null = null;
+  private _savedGlsl: string | null = null;
 
   connectedCallback() {
     const src = this.getAttribute('src');
@@ -217,6 +334,7 @@ class ShaderSandbox extends HTMLElement {
 
     // Save and clear inline GLSL so it doesn't render as visible text
     if (inlineGlsl) {
+      this._savedGlsl = inlineGlsl;
       this.textContent = '';
     }
 
@@ -284,18 +402,10 @@ class ShaderSandbox extends HTMLElement {
   }
 
   private _showLoading(): void {
+    injectStyles();
     this._placeholder = document.createElement('div');
-    Object.assign(this._placeholder.style, {
-      position: 'absolute',
-      inset: '0',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      color: '#888',
-      fontSize: '14px',
-      fontFamily: 'system-ui, sans-serif',
-    });
-    this._placeholder.textContent = 'Loading shader\u2026';
+    this._placeholder.className = 'ss-loading';
+    this._placeholder.innerHTML = '<div class="ss-loading__shimmer"></div>';
     this.appendChild(this._placeholder);
   }
 
@@ -308,22 +418,29 @@ class ShaderSandbox extends HTMLElement {
 
   private _showError(err: unknown): void {
     this._clearPlaceholder();
+    injectStyles();
     const msg = err instanceof Error ? err.message : String(err);
+
     const errorEl = document.createElement('div');
-    Object.assign(errorEl.style, {
-      position: 'absolute',
-      inset: '0',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      color: '#c44',
-      fontSize: '13px',
-      fontFamily: 'system-ui, sans-serif',
-      padding: '1em',
-      textAlign: 'center',
-      background: 'rgba(0,0,0,0.05)',
+    errorEl.className = 'ss-error';
+    errorEl.innerHTML = `
+      <div class="ss-error__card">
+        <div class="ss-error__accent"></div>
+        <div class="ss-error__body">
+          <div class="ss-error__title">Shader Error</div>
+          <pre class="ss-error__message">${escapeHTML(msg)}</pre>
+          <button class="ss-error__retry">Retry</button>
+        </div>
+      </div>
+    `;
+
+    errorEl.querySelector('.ss-error__retry')!.addEventListener('click', () => {
+      this._destroyShader();
+      const src = this.getAttribute('src');
+      const inlineGlsl = !src ? this._savedGlsl : null;
+      this._mountShader(src, inlineGlsl);
     });
-    errorEl.textContent = `Shader error: ${msg}`;
+
     this._placeholder = errorEl;
     this.appendChild(errorEl);
   }
@@ -337,11 +454,17 @@ class ShaderSandbox extends HTMLElement {
       const options = this._buildOptions();
 
       if (inlineGlsl) {
-        this._clearPlaceholder();
         this._handle = loadFromSource(this, inlineGlsl, options);
+        this._clearPlaceholder();
       } else {
         this._handle = await loadFromFolder(this, src!, options);
         this._clearPlaceholder();
+      }
+
+      // Fade in the mounted content
+      const layoutRoot = this.querySelector('.layout-default, .layout-fullscreen, .layout-split, .layout-tabbed');
+      if (layoutRoot) {
+        layoutRoot.classList.add('ss-fade-in');
       }
 
       this._mounted = true;

@@ -156,7 +156,11 @@
 
 /* ===== Responsive adjustments ===== */
 
-@media (max-width: 800px) {
+.layout-split {
+  container-type: inline-size;
+}
+
+@container (max-width: 700px) {
   .layout-split {
     flex-direction: column;
   }

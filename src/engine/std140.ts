@@ -134,3 +134,168 @@ export function packStd140(
 export function glslTypeName(type: ArrayUniformType): string {
   return type; // float, vec2, vec3, vec4, mat3, mat4 are already valid GLSL
 }
+
+// =============================================================================
+// Struct Layout
+// =============================================================================
+
+/** Alignment in bytes for each type in std140 layout */
+const STD140_ALIGN_BYTES: Record<ArrayUniformType, number> = {
+  float: 4, vec2: 8, vec3: 16, vec4: 16, mat3: 16, mat4: 16,
+};
+
+/** Actual data size in bytes for each type (before padding) */
+const STD140_SIZE_BYTES: Record<ArrayUniformType, number> = {
+  float: 4, vec2: 8, vec3: 12, vec4: 16, mat3: 48, mat4: 64,
+};
+
+/** Layout of a single field within a struct */
+export interface StructFieldLayout {
+  name: string;
+  type: ArrayUniformType;
+  /** Byte offset within one struct element */
+  offsetBytes: number;
+  /** Actual data size in bytes */
+  sizeBytes: number;
+  /** Number of user-facing floats for this field */
+  tightFloats: number;
+}
+
+/** Computed layout for a struct array */
+export interface StructLayout {
+  fields: StructFieldLayout[];
+  /** Total bytes per struct element (padded to base alignment) */
+  strideBytes: number;
+  /** strideBytes / 4 */
+  strideFloats: number;
+  /** Sum of all fields' tightFloats */
+  tightFloatsPerElement: number;
+}
+
+function roundUp(value: number, alignment: number): number {
+  return Math.ceil(value / alignment) * alignment;
+}
+
+/**
+ * Compute the std140 layout for a struct with the given fields.
+ * Fields are processed in insertion order (Object.keys preserves JSON key order).
+ */
+export function computeStructLayout(struct: Record<string, ArrayUniformType>): StructLayout {
+  const fields: StructFieldLayout[] = [];
+  let offset = 0;
+  let maxAlign = 0;
+  let totalTight = 0;
+
+  for (const [name, type] of Object.entries(struct)) {
+    const align = STD140_ALIGN_BYTES[type];
+    const size = STD140_SIZE_BYTES[type];
+    const tight = TIGHT_FLOATS[type];
+
+    offset = roundUp(offset, align);
+    fields.push({ name, type, offsetBytes: offset, sizeBytes: size, tightFloats: tight });
+    offset += size;
+    maxAlign = Math.max(maxAlign, align);
+    totalTight += tight;
+  }
+
+  // Struct base alignment is rounded up to vec4 (16 bytes)
+  const baseAlign = roundUp(Math.max(maxAlign, 16), 16);
+  const strideBytes = roundUp(offset, baseAlign);
+
+  return {
+    fields,
+    strideBytes,
+    strideFloats: strideBytes / 4,
+    tightFloatsPerElement: totalTight,
+  };
+}
+
+/**
+ * Total byte size of a struct array in std140 layout.
+ */
+export function std140StructByteSize(layout: StructLayout, count: number): number {
+  return layout.strideBytes * count;
+}
+
+/**
+ * Pack per-field data into std140 struct array layout.
+ *
+ * @param layout - Computed struct layout
+ * @param count - Number of elements to pack
+ * @param fieldData - Map of field name → tightly-packed Float32Array (count × tightFloats values)
+ * @param out - Optional pre-allocated output buffer
+ */
+export function packStructStd140(
+  layout: StructLayout,
+  count: number,
+  fieldData: Record<string, Float32Array>,
+  out?: Float32Array,
+): Float32Array {
+  const totalFloats = layout.strideFloats * count;
+  const result = out && out.length >= totalFloats ? out : new Float32Array(totalFloats);
+
+  for (let i = 0; i < count; i++) {
+    const elementBase = i * layout.strideFloats;
+
+    for (const field of layout.fields) {
+      const dstOffset = elementBase + field.offsetBytes / 4;
+      const srcOffset = i * field.tightFloats;
+      const src = fieldData[field.name];
+      if (!src) continue;
+
+      if (field.type === 'mat3') {
+        // mat3: 9 tight floats → 3 columns of vec4 (12 floats with padding)
+        for (let col = 0; col < 3; col++) {
+          result[dstOffset + col * 4 + 0] = src[srcOffset + col * 3 + 0] ?? 0;
+          result[dstOffset + col * 4 + 1] = src[srcOffset + col * 3 + 1] ?? 0;
+          result[dstOffset + col * 4 + 2] = src[srcOffset + col * 3 + 2] ?? 0;
+          result[dstOffset + col * 4 + 3] = 0;
+        }
+      } else {
+        // float, vec2, vec3, vec4, mat4: copy tight data directly
+        for (let j = 0; j < field.tightFloats; j++) {
+          result[dstOffset + j] = src[srcOffset + j] ?? 0;
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Pack a single struct element into an existing std140 buffer.
+ *
+ * @param layout - Computed struct layout
+ * @param index - Element index
+ * @param fieldValues - Map of field name → value array
+ * @param out - Target buffer (modified in place)
+ */
+export function packStructElementStd140(
+  layout: StructLayout,
+  index: number,
+  fieldValues: Record<string, number[]>,
+  out: Float32Array,
+): void {
+  const elementBase = index * layout.strideFloats;
+
+  for (const field of layout.fields) {
+    const vals = fieldValues[field.name];
+    if (!vals) continue;
+
+    const dstOffset = elementBase + field.offsetBytes / 4;
+
+    if (field.type === 'mat3') {
+      for (let col = 0; col < 3; col++) {
+        out[dstOffset + col * 4 + 0] = vals[col * 3 + 0] ?? 0;
+        out[dstOffset + col * 4 + 1] = vals[col * 3 + 1] ?? 0;
+        out[dstOffset + col * 4 + 2] = vals[col * 3 + 2] ?? 0;
+        out[dstOffset + col * 4 + 3] = 0;
+      }
+    } else {
+      for (let j = 0; j < field.tightFloats; j++) {
+        out[dstOffset + j] = vals[j] ?? 0;
+      }
+    }
+  }
+}

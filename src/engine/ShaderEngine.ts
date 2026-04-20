@@ -16,7 +16,7 @@ import {
   PassName,
   UniformValue,
   UniformValues,
-  isArrayUniform,
+  isAnyUBOUniform,
 } from '../project/types';
 
 import { UniformStore } from '../uniforms/UniformStore';
@@ -145,7 +145,7 @@ export class ShaderEngine {
     this._media = new MediaManager(this.gl, opts.project);
 
     // 6. Initialize custom uniform values and UBOs (must happen before shader compilation)
-    this._uniformMgr = new UniformManager(this.gl, opts.project.uniforms);
+    this._uniformMgr = new UniformManager(this.gl, opts.project.uniforms, opts.project.uniformData);
 
     // 7. Store view names for multi-view cross-view uniforms (must be before shader compilation)
     if (opts.viewNames && opts.viewNames.length > 1) {
@@ -278,15 +278,21 @@ export class ShaderEngine {
   getUniformValues(): UniformValues { return this._uniformMgr.getAll(); }
   setUniformValue(name: string, value: UniformValue): void { this._uniformMgr.set(name, value); }
   setUniformValues(values: Partial<UniformValues>): void { this._uniformMgr.setMultiple(values); }
+  setArrayUniform(name: string, data: number[][] | number[]): void { this._uniformMgr.setArrayUniform(name, data); }
+  setArrayElement(name: string, index: number, value: number | number[]): void { this._uniformMgr.setArrayElement(name, index, value); }
+  setActiveCount(name: string, count: number): void { this._uniformMgr.setActiveCount(name, count); }
+  setStructArrayUniform(name: string, data: Record<string, number[][] | number[]>): void { this._uniformMgr.setStructArrayUniform(name, data); }
+  setStructArrayElement(name: string, index: number, data: Record<string, number | number[]>): void { this._uniformMgr.setStructArrayElement(name, index, data); }
 
   /** Export UBO data for HTML export (copies current padded data). */
-  getUBOExportData(): Array<{ name: string; type: string; count: number; bindingPoint: number; paddedData: Float32Array }> {
+  getUBOExportData(): Array<{ name: string; type: string; count: number; bindingPoint: number; paddedData: Float32Array; struct?: Record<string, string> }> {
     return this._uniformMgr.ubos.map(u => ({
       name: u.name,
-      type: u.def.type,
+      type: u.kind === 'struct' ? 'struct' : u.def.type,
       count: u.def.count,
       bindingPoint: u.bindingPoint,
       paddedData: new Float32Array(u.paddedData),
+      struct: u.kind === 'struct' ? (u.def.struct as Record<string, string>) : undefined,
     }));
   }
 
@@ -711,7 +717,7 @@ export class ShaderEngine {
     // Cache custom uniform locations (skip array uniforms — they use UBOs)
     const customLocations = new Map<string, WebGLUniformLocation | null>();
     for (const [name, def] of Object.entries(this.project.uniforms)) {
-      if (isArrayUniform(def)) continue;
+      if (isAnyUBOUniform(def)) continue;
       customLocations.set(name, gl.getUniformLocation(program, name));
     }
 
@@ -964,7 +970,10 @@ export class ShaderEngine {
   private buildFragmentShader(userSource: string, channels: ChannelSource[], namedSamplers?: Map<string, ChannelSource>): { source: string; lineMapping: LineMapping } {
     return buildFragSource(userSource, channels, {
       commonSource: this.project.commonSource ?? '',
-      ubos: this._uniformMgr.ubos.map(u => ({ name: u.name, def: u.def, count: u.def.count })),
+      ubos: this._uniformMgr.ubos.map(u => ({
+        name: u.name, def: u.def, count: u.def.count,
+        structLayout: u.kind === 'struct' ? u.layout : undefined,
+      })),
       uniforms: this.project.uniforms,
       namedSamplers,
       viewNames: this._viewNames.length > 1 ? this._viewNames : undefined,

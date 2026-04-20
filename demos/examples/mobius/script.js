@@ -31,7 +31,8 @@ function onMouseUp() {
   dragging = false;
 }
 
-export function setup(engine) {
+export function setup(engine, { isRestore }) {
+  if (isRestore) return; // Don't re-add listeners on context restore
   canvas = document.querySelector('canvas');
   if (canvas) {
     canvas.addEventListener('mousedown', onMouseDown);
@@ -42,4 +43,12 @@ export function setup(engine) {
 
 export function onFrame(engine) {
   engine.setUniformValue('uRotation', [lon, lat]);
+}
+
+export function dispose() {
+  if (canvas) {
+    canvas.removeEventListener('mousedown', onMouseDown);
+  }
+  window.removeEventListener('mousemove', onMouseMove);
+  window.removeEventListener('mouseup', onMouseUp);
 }

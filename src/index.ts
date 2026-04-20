@@ -34,7 +34,7 @@ export type {
   ViewEntry,
   CrossViewState,
 } from './project/types';
-export { isArrayUniform, isMultiViewProject, isMultiViewConfig } from './project/types';
+export { isArrayUniform, isStructArrayUniform, isAnyUBOUniform, isMultiViewProject, isMultiViewConfig } from './project/types';
 
 export type {
   RecompileResult,

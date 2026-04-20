@@ -1,0 +1,12 @@
+{
+  "title": "Hyperbolic Voronoi (Edges Only)",
+  "layout": "default",
+  "controls": false,
+  "mode": "shadertoy",
+  "BufferA": {
+    "iChannel0": "BufferA"
+  },
+  "Image": {
+    "iChannel0": "BufferA"
+  }
+}

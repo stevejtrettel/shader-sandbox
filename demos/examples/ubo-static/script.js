@@ -1,15 +1,12 @@
 /**
  * Projective Reflection Group — static UBO example
  *
- * Demonstrates computing matrices ONCE at startup via setup(),
- * rather than recomputing every frame via onFrame().
- *
- * The parameter d is hardcoded here since there's no slider to change it.
- * The matrices are sent to the GPU once and never updated.
+ * Demonstrates computing matrices ONCE at startup via setup().
+ * The parameter d is hardcoded — matrices are sent once and never updated.
  */
 
 const MAX_MATRICES = 128;
-const D = 0.89; // fixed parameter — change this to get a different group
+const D = 0.89;
 
 // ─── Matrix helpers ──────────────────────────────────────────────────────────
 
@@ -86,20 +83,10 @@ function generateOrbit(generators) {
   return results;
 }
 
-// ─── Pack ────────────────────────────────────────────────────────────────────
-
-function packMat3Array(matrices) {
-  const data = new Float32Array(matrices.length * 9);
-  for (let i = 0; i < matrices.length; i++) {
-    data.set(matrices[i], i * 9);
-  }
-  return data;
-}
-
 // ─── One-time setup ──────────────────────────────────────────────────────────
 
 export function setup(engine) {
   const generators = makeGenerators(D);
   const orbit = generateOrbit(generators);
-  engine.setUniformValue('matrices', packMat3Array(orbit));
+  engine.setArrayUniform('matrices', orbit);
 }

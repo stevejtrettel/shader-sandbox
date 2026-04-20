@@ -18,7 +18,7 @@ import {
   Vec2UniformDefinition,
   Vec3UniformDefinition,
   Vec4UniformDefinition,
-  isArrayUniform,
+  isAnyUBOUniform,
 } from '../project/types';
 
 export interface UniformControlsOptions {
@@ -54,7 +54,7 @@ export class UniformControls {
 
     // Initialize values
     for (const [name, def] of Object.entries(this.uniforms)) {
-      if (isArrayUniform(def) || def.hidden) continue;
+      if (isAnyUBOUniform(def) || def.hidden) continue;
       this.values[name] = opts.initialValues?.[name] ?? def.value;
     }
 
@@ -96,7 +96,7 @@ export class UniformControls {
     controlList.className = 'uniform-controls-list';
 
     for (const [name, def] of uniformEntries) {
-      if (isArrayUniform(def) || def.hidden) continue;
+      if (isAnyUBOUniform(def) || def.hidden) continue;
       const result = this.createControl(name, def);
       if (result) {
         this.updaters.set(name, result.update);
@@ -111,7 +111,7 @@ export class UniformControls {
    * Create a control element for a uniform.
    */
   private createControl(name: string, def: UniformDefinition): { element: HTMLElement; update: (v: UniformValue) => void } | null {
-    if (isArrayUniform(def) || def.hidden) return null;
+    if (isAnyUBOUniform(def) || def.hidden) return null;
     switch (def.type) {
       case 'float':
         return this.createFloatSlider(name, def);
@@ -655,7 +655,7 @@ export class UniformControls {
    */
   resetToDefaults(): void {
     for (const [name, def] of Object.entries(this.uniforms)) {
-      if (isArrayUniform(def) || def.hidden) continue;
+      if (isAnyUBOUniform(def) || def.hidden) continue;
       this.setValue(name, def.value);
       this.onChange(name, def.value);
     }

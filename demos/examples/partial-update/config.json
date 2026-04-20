@@ -1,0 +1,13 @@
+{
+  "title": "Partial Update",
+  "layout": "default",
+  "controls": true,
+  "uniforms": {
+    "dots": {
+      "struct": { "pos": "vec2", "size": "float", "color": "vec3" },
+      "count": 40
+    },
+    "uHue": { "type": "float", "value": 0.0, "min": 0.0, "max": 360.0, "step": 1.0, "label": "Hue Offset" },
+    "uSpread": { "type": "float", "value": 0.3, "min": 0.05, "max": 0.6, "step": 0.01, "label": "Spread" }
+  }
+}

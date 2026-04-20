@@ -31,16 +31,6 @@ export function onFrame(engine, time, deltaTime, frame) {
     }
   }
 
-  // Pack particle data into Float32Array for the shader
-  // Each particle is a vec4: (x, y, vx, vy)
-  const data = new Float32Array(NUM_PARTICLES * 4);
-  for (let i = 0; i < NUM_PARTICLES; i++) {
-    const p = particles[i];
-    data[i * 4 + 0] = p.x;
-    data[i * 4 + 1] = p.y;
-    data[i * 4 + 2] = p.vx;
-    data[i * 4 + 3] = p.vy;
-  }
-
-  engine.setUniformValue('uParticles', data);
+  // Send particle data — engine packs vec4 array automatically
+  engine.setArrayUniform('uParticles', particles.map(p => [p.x, p.y, p.vx, p.vy]));
 }

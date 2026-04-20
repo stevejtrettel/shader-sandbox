@@ -12,7 +12,6 @@
  *   shader build-runtime              - Build the standalone runtime loader
  *   shader list                       - List available shaders
  *   shader build-gallery              - Build a static gallery index page
- *   shader render <name> [options]    - Render frames/video headlessly
  */
 
 import { spawn } from 'child_process';
@@ -48,7 +47,6 @@ Usage:
   shader build-runtime              Build the standalone runtime loader
   shader list                       List available shaders
   shader build-gallery              Build a static gallery index page
-  shader render <name> [options]    Render frames/video (headless)
 
 Templates for 'shader new':
   simple      Minimal starter (default)
@@ -740,8 +738,8 @@ switch (command) {
       if (fs.existsSync(configPath)) {
         try {
           const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-          if (config.meta?.title) title = config.meta.title;
-          if (config.meta?.description) description = config.meta.description;
+          if (config.title) title = config.title;
+          if (config.description) description = config.description;
         } catch {}
       }
       return { name, title, description };
@@ -840,161 +838,15 @@ ${cards.map(c => `    <a class="card" href="${escapeHtml(c.name)}/index.html">
   }
 
   case 'render': {
-    const shaderName = args[1];
-    const cwd = process.cwd();
-
-    if (!shaderName) {
-      console.error('Error: Specify which shader to render');
-      console.error('  npx shader render <shader-name> [options]');
-      console.error('');
-      console.error('Options:');
-      console.error('  --width <n>      Output width (default: 1920)');
-      console.error('  --height <n>     Output height (default: 1080)');
-      console.error('  --fps <n>        Frames per second (default: 60)');
-      console.error('  --duration <n>   Duration in seconds (default: 10)');
-      console.error('  --format <type>  frames or video (default: video)');
-      process.exit(1);
-    }
-
-    const shaderPath = path.join(cwd, 'shaders', shaderName);
-    if (!fs.existsSync(shaderPath)) {
-      console.error(`Error: Shader "${shaderName}" not found`);
-      process.exit(1);
-    }
-
-    // Parse options
-    const renderOpts = {
-      width: 1920,
-      height: 1080,
-      fps: 60,
-      duration: 10,
-      format: 'video',
-    };
-
-    for (let i = 2; i < args.length; i++) {
-      const arg = args[i];
-      const next = args[i + 1];
-      if (arg === '--width' && next) { renderOpts.width = parseInt(next); i++; }
-      else if (arg === '--height' && next) { renderOpts.height = parseInt(next); i++; }
-      else if (arg === '--fps' && next) { renderOpts.fps = parseInt(next); i++; }
-      else if (arg === '--duration' && next) { renderOpts.duration = parseFloat(next); i++; }
-      else if (arg === '--format' && next) { renderOpts.format = next; i++; }
-    }
-
-    console.log(`Rendering "${shaderName}" at ${renderOpts.width}x${renderOpts.height}, ${renderOpts.fps}fps, ${renderOpts.duration}s, format: ${renderOpts.format}...`);
-    console.log('Opening browser for headless render...');
-
-    // Set render options as env vars and run dev server
-    const renderEnv = {
-      ...process.env,
-      SHADER_NAME: shaderName,
-      SHADER_RENDER: JSON.stringify(renderOpts),
-    };
-
-    const viteBin = findViteBin(cwd);
-    if (!viteBin) {
-      console.error('Error: vite not found. Run "npm install" first');
-      process.exit(1);
-    }
-
-    // Start vite dev server, then open browser with puppeteer
-    const viteChild = spawn(viteBin, [], {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
-      env: renderEnv,
-    });
-
-    let serverUrl = '';
-
-    // Timeout if Vite never prints the server URL
-    const startupTimeout = setTimeout(() => {
-      if (!serverUrl) {
-        console.error('Error: Timed out waiting for Vite dev server to start');
-        viteChild.kill();
-        process.exit(1);
-      }
-    }, 30000);
-
-    viteChild.stdout.on('data', async (data) => {
-      const text = data.toString();
-      const match = text.match(/Local:\s+(https?:\/\/[^\s]+)/);
-      if (match && !serverUrl) {
-        serverUrl = match[1];
-        clearTimeout(startupTimeout);
-        console.log(`Dev server at ${serverUrl}`);
-
-        try {
-          let puppeteer;
-          try {
-            puppeteer = await import('puppeteer-core');
-          } catch {
-            console.error('Error: puppeteer-core is required for the render command.');
-            console.error('Install it with: npm install puppeteer-core');
-            viteChild.kill();
-            process.exit(1);
-          }
-          // Try common Chrome paths
-          const chromePaths = process.platform === 'darwin'
-            ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
-            : process.platform === 'win32'
-              ? ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe']
-              : ['/usr/bin/google-chrome', '/usr/bin/chromium-browser'];
-
-          let execPath = '';
-          for (const p of chromePaths) {
-            if (fs.existsSync(p)) { execPath = p; break; }
-          }
-
-          if (!execPath) {
-            console.error('Error: Chrome not found. Install Google Chrome for headless rendering.');
-            viteChild.kill();
-            process.exit(1);
-          }
-
-          const browser = await puppeteer.default.launch({
-            headless: true,
-            executablePath: execPath,
-            args: ['--no-sandbox', `--window-size=${renderOpts.width},${renderOpts.height}`],
-          });
-
-          const page = await browser.newPage();
-          await page.setViewport({ width: renderOpts.width, height: renderOpts.height });
-
-          // Navigate to shader with render params
-          const renderUrl = `${serverUrl}?render=${encodeURIComponent(JSON.stringify(renderOpts))}`;
-          await page.goto(renderUrl, { waitUntil: 'networkidle0', timeout: 30000 });
-
-          // Wait for render to complete (page sets window.__renderComplete)
-          await page.waitForFunction('window.__renderComplete === true', { timeout: renderOpts.duration * 2000 + 60000 });
-
-          console.log('Render complete!');
-          await browser.close();
-        } catch (e) {
-          console.error('Render error:', e.message);
-          viteChild.kill();
-          process.exit(1);
-        }
-        viteChild.kill();
-        process.exit(0);
-      }
-    });
-
-    viteChild.stderr.on('data', (data) => {
-      // Suppress normal vite output, show errors
-      const text = data.toString();
-      if (text.includes('error') || text.includes('Error')) {
-        process.stderr.write(data);
-      }
-    });
-
-    viteChild.on('close', (code) => {
-      if (code !== 0 && !serverUrl) {
-        console.error('Dev server failed to start');
-        process.exit(code);
-      }
-    });
-    break;
+    // Headless rendering is not yet implemented.
+    // Use the in-browser recording panel (controls: true → record button) instead.
+    console.error('The render command is not yet available.');
+    console.error('');
+    console.error('For offline recording, use the in-browser recording panel:');
+    console.error('  1. Run your shader with: npx shader dev <name>');
+    console.error('  2. Enable controls ("controls": true in config.json)');
+    console.error('  3. Click the record button for MP4, WebM, or PNG frame export');
+    process.exit(1);
   }
 
   case 'build-all': {

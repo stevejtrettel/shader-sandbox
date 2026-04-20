@@ -49,16 +49,18 @@ See more examples in the [demos/examples](https://github.com/stevejtrettel/shade
 shader create <name>     # Create new project folder
 shader create .          # Initialize in current folder
 shader dev <name>        # Run shader with live reload
+shader dev               # Gallery mode — browse all shaders
 shader build <name>      # Build a single shader for production
 shader build-all         # Build all shaders in shaders/
 shader build-runtime     # Copy the runtime loader to dist/
 shader new <name>        # Create a new shader from template
 shader list              # List all shaders
 shader build-gallery     # Build a static gallery index page
-shader render <name>     # Render frames/video headlessly
 ```
 
 Use `npx shader` if not installed globally.
+
+Running `shader dev` with no shader name starts a gallery page that lists all shaders in your project. Click any card to open that shader in the dev server.
 
 ## Project Structure
 
@@ -242,35 +244,164 @@ For large data arrays, use array uniforms backed by Uniform Buffer Objects:
 }
 ```
 
-Supported array types: `float`, `vec2`, `vec3`, `vec4`, `mat3`, `mat4`. Array uniforms have no UI — set their data from JavaScript via the scripting API.
+Supported array types: `float`, `vec2`, `vec3`, `vec4`, `mat3`, `mat4`. Array uniforms have no UI — set their data from JavaScript via the scripting API. The engine auto-injects a `name_count` uniform with the number of active elements.
+
+For static datasets, use `"data"` to load directly from a JSON file — no script needed:
+
+```json
+{
+  "uniforms": {
+    "positions": { "type": "vec3", "count": 27, "data": "./data.json" }
+  }
+}
+```
+
+The JSON file can be an array (used directly) or an object with a key matching the uniform name. Multiple uniforms can reference the same file:
+
+```json
+{
+  "positions": [[0.1, 0.2, 0.0], [0.3, 0.5, 0.0]],
+  "coefficients": [1.0, 2.0, 3.0]
+}
+```
 
 ```glsl
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    vec3 p = positions[0].xyz;
-    vec3 q = matrices[0] * vec3(fragCoord, 1.0);
-    // ...
+    // Loop over active elements
+    for (int i = 0; i < positions_count; i++) {
+        vec4 p = positions[i];
+        // ...
+    }
 }
 ```
+
+### Struct Array Uniforms
+
+When related data has multiple types per entity (e.g. position + color), use a struct array to pack them into a single UBO. This uses one binding point instead of one per field:
+
+```json
+{
+  "uniforms": {
+    "seeds": {
+      "struct": { "position": "vec3", "color": "vec4" },
+      "count": 1000
+    }
+  }
+}
+```
+
+The engine generates a GLSL struct and uniform block automatically:
+
+```glsl
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    for (int i = 0; i < seeds_count; i++) {
+        vec3 pos = seeds[i].position;
+        vec4 col = seeds[i].color;
+        // ...
+    }
+}
+```
+
+Set data from scripts using per-field arrays:
+
+```js
+engine.setStructArrayUniform('seeds', {
+  position: [[1,0,0], [0,1,0], [0,0,1]],
+  color: [[1,0,0,1], [0,1,0,1], [0,0,1,1]],
+});
+
+// Update a single element
+engine.setStructArrayElement('seeds', 0, {
+  position: [0.5, 0.3, 1.0],
+  color: [1, 0, 0, 1],
+});
+```
+
+Struct fields support the same types as plain array uniforms: `float`, `vec2`, `vec3`, `vec4`, `mat3`, `mat4`.
 
 ## Scripting API
 
 Add a `script.js` to your shader folder for per-frame computation:
 
 ```js
-export function setup(engine) {
-  // Called once after initialization
+export function setup(engine, { isRestore }) {
+  // Called once after initialization (isRestore = false)
+  // Also called on WebGL context restore (isRestore = true)
 }
 
 export function onFrame(engine, time, deltaTime, frame) {
   // Called every frame before shader execution
-  const data = new Float32Array(100 * 4);
-  for (let i = 0; i < 100; i++) {
-    data[i * 4] = Math.cos(time + i * 0.1) * 0.3 + 0.5;
-    data[i * 4 + 1] = Math.sin(time + i * 0.1) * 0.3 + 0.5;
-    data[i * 4 + 2] = 0.02;
-    data[i * 4 + 3] = i / 100;
+}
+
+export function onUniformChange(engine, name, value) {
+  // Called when a uniform changes from outside the script (e.g. UI sliders)
+  // Not called for the script's own setUniformValue calls
+}
+
+export function dispose() {
+  // Called when the shader is destroyed — clean up event listeners, timers, etc.
+}
+```
+
+All hooks are optional — export any combination you need.
+
+### Setting Array Uniforms
+
+The engine knows each array uniform's type from `config.json`, so you can pass structured JS arrays and let it handle the packing:
+
+```js
+// Set from JS arrays — the engine flattens and packs to Float32Array automatically
+engine.setArrayUniform('positions', [
+  [0.5, 0.3, 1.0],   // vec3
+  [0.2, 0.8, 0.5],
+  [0.9, 0.1, 0.7],
+]);
+
+// For float arrays, pass a flat array
+engine.setArrayUniform('coefficients', [1.0, 2.0, 3.0, 4.0]);
+
+// Update a single element by index (much cheaper than resending everything)
+engine.setArrayElement('positions', 0, [0.6, 0.4, 1.0]);
+
+// Control how many elements the shader sees (written to name_count)
+engine.setActiveCount('positions', 2);  // shader loops over 2, not 3
+
+// Raw Float32Array still works for performance-critical per-frame updates
+engine.setUniformValue('positions', myFloat32Array);
+```
+
+### Reacting to Uniform Changes
+
+Use `onUniformChange` instead of polling `getUniformValue` every frame:
+
+```js
+let cachedOrbit;
+
+export function onUniformChange(engine, name, value) {
+  if (name === 'd') {
+    // Recompute only when the slider moves
+    cachedOrbit = generateOrbit(value);
+    engine.setArrayUniform('matrices', cachedOrbit);
   }
-  engine.setUniformValue('positions', data);
+}
+```
+
+### Lifecycle and Cleanup
+
+The `dispose` hook is called when the shader is destroyed (e.g. navigating away, or the host calling `handle.destroy()`). Use it to remove event listeners or cancel timers:
+
+```js
+let canvas, onMouseDown;
+
+export function setup(engine, { isRestore }) {
+  if (isRestore) return; // Don't re-add listeners on context restore
+  canvas = document.querySelector('canvas');
+  onMouseDown = (e) => { /* ... */ };
+  canvas.addEventListener('mousedown', onMouseDown);
+}
+
+export function dispose() {
+  canvas?.removeEventListener('mousedown', onMouseDown);
 }
 ```
 
@@ -278,11 +409,27 @@ export function onFrame(engine, time, deltaTime, frame) {
 
 | Method | Description |
 |--------|-------------|
-| `engine.setUniformValue(name, value)` | Set any uniform value |
+| `engine.setUniformValue(name, value)` | Set any uniform (scalar or raw Float32Array) |
 | `engine.getUniformValue(name)` | Read current uniform value |
+| `engine.setArrayUniform(name, data)` | Set array uniform from `number[][]` or `number[]` — auto-packs |
+| `engine.setArrayElement(name, index, value)` | Update one element of an array uniform |
+| `engine.setActiveCount(name, count)` | Set how many elements the shader uses (`name_count`) |
+| `engine.setStructArrayUniform(name, data)` | Set struct array from per-field data (`{ field: [[...], ...] }`) |
+| `engine.setStructArrayElement(name, index, data)` | Update one element of a struct array |
 | `engine.updateTexture(name, w, h, data)` | Upload texture data from JS |
 | `engine.readPixels(pass, x, y, w, h)` | Read pixels from a buffer (GPU readback) |
+| `engine.setOverlay(position, text)` | Show text overlay (`"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"`). Pass `null` to clear. |
 | `engine.width` / `engine.height` | Canvas dimensions |
+
+#### Multi-View Script Extensions
+
+In multi-view projects, the script engine API includes additional methods:
+
+| Method | Description |
+|--------|-------------|
+| `engine.viewNames` | Array of view names in the project |
+| `engine.getCrossViewState(viewName)` | Read another view's state (mouse, resolution) |
+| `engine.setOverlay(position, text, viewName)` | Set overlay on a specific view by name |
 
 ## Keyboard Input
 
@@ -295,8 +442,9 @@ Add `"keyboard"` as a named texture to get a 256x3 texture of key states:
 ```
 
 The texture has three rows:
-- Row 0: key pressed (1.0 if held down)
-- Row 2: key toggle (flips on each press)
+- Row 0: key pressed (1.0 if currently held down)
+- Row 1: key down event (1.0 for one frame when first pressed, then cleared)
+- Row 2: key toggle (flips between 0.0 and 1.0 on each press)
 
 Helper constants and functions are auto-injected:
 
@@ -338,6 +486,8 @@ These are set in `config.json` for each shader. The presentation options (`layou
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `title` | string | folder name | Project title (used in gallery and export) |
+| `description` | string | — | Project description (used in gallery) |
 | `layout` | string | `"default"` | Canvas layout mode (see Layouts) |
 | `theme` | string | `"auto"` | `"auto"` (inherit from host page), `"light"`, `"dark"`, or `"system"` (follows OS preference) |
 | `controls` | boolean | `true` | Show on-screen playback controls |
@@ -371,13 +521,30 @@ shader-sandbox {
 
 ### Video Recording
 
-With `"controls": true`, use the record button to capture your shader as a WebM video (VP9 at 60fps). Click stop to end — the video downloads automatically.
+With `"controls": true`, use the record button to open the offline recording panel. The panel supports:
+
+| Format | Description |
+|--------|-------------|
+| **MP4** | H.264 via WebCodecs (if browser supports `VideoEncoder`) |
+| **WebM** | VP9 codec |
+| **PNG Frames** | Raw frame sequence (ZIP download) |
+
+Additional recording options:
+- **Resolution presets**: 720p, 1080p, 1440p, 4K, 8K
+- **Custom aspect ratio**: Lock or override width/height independently
+- **Quality presets**: Low (2 Mbps) through Ultra (32 Mbps)
+- **FPS and duration**: Set target framerate and length
+- **Warmup frames**: Skip initial frames for buffer shaders that need time to converge
+
+Recording runs offline at a fixed timestep — the shader advances one frame at a time regardless of real-time performance, so the output is deterministic.
 
 ### HTML Export
 
-The export button generates a standalone HTML file containing your shader. It includes all passes, common code, and current uniform values. No external dependencies required.
+The export button generates a standalone HTML file containing your shader. No external dependencies required.
 
-**Not included in export:** array uniforms, audio, webcam, video, script hooks. Textures are replaced with a procedural pattern.
+**Included in export:** all passes (with ping-pong FBOs), common code, current uniform values, array uniforms (UBOs with std140 layout), script hooks (inlined), and keyboard texture support.
+
+**Not included in export:** audio, webcam, and video textures (replaced with black). Image textures are replaced with a procedural grid pattern.
 
 ## Building for Production
 
@@ -473,9 +640,73 @@ Pane decoration is controlled via CSS custom properties (`--pane-radius`, `--pan
 
 ## Runtime Loader (No Build Step)
 
-For blogs, static sites, or Quarto — where you just want to drop `.glsl` files on a server without running a build — use the runtime loader. It fetches shader files directly over HTTP using the `<shader-sandbox>` custom element.
+For blogs and static sites — where you just want to drop `.glsl` files on a server without running a build — use the runtime loader. It fetches shader files directly over HTTP using the `<shader-sandbox>` custom element.
 
-### Setup
+### Quick Start (CDN)
+
+Add one script tag to any HTML page — no install, no build:
+
+```html
+<script type="module" src="https://esm.sh/shader-sandbox/runtime/standalone"></script>
+```
+
+Then embed shaders anywhere on the page:
+
+```html
+<!-- From a URL (GitHub Pages, your own server, etc.) -->
+<div style="width: 100%; aspect-ratio: 16/9;">
+  <shader-sandbox src="https://your-site.github.io/shaders/my-shader/"></shader-sandbox>
+</div>
+
+<!-- Inline GLSL, no server needed -->
+<div style="width: 400px; height: 400px;">
+  <shader-sandbox>
+  void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+      vec2 uv = fragCoord / iResolution.xy;
+      fragColor = vec4(uv, 0.5 + 0.5*sin(iTime), 1.0);
+  }
+  </shader-sandbox>
+</div>
+```
+
+The `<shader-sandbox>` element fills its container — **you control the size** from your page's CSS, the same way you'd size an `<iframe>` or `<canvas>`.
+
+Alternative CDN URLs (all work after npm publish):
+- `https://unpkg.com/shader-sandbox/dist-runtime/shader-sandbox.js`
+- `https://cdn.jsdelivr.net/npm/shader-sandbox/dist-runtime/shader-sandbox.js`
+
+### Sizing
+
+The element is `display: block; width: 100%; height: 100%`. It fills whatever you put it in. Size the container however you want:
+
+```html
+<!-- Responsive 16:9 -->
+<div style="width: 100%; aspect-ratio: 16/9;">
+  <shader-sandbox src="..."></shader-sandbox>
+</div>
+
+<!-- Fixed size -->
+<shader-sandbox src="..." style="width: 600px; height: 400px;"></shader-sandbox>
+
+<!-- Fullpage hero -->
+<shader-sandbox src="..." fullpage></shader-sandbox>
+
+<!-- With editable code for teaching -->
+<div style="width: 100%; aspect-ratio: 16/9;">
+  <shader-sandbox src="..." layout="split" controls="true"></shader-sandbox>
+</div>
+```
+
+#### Layout Recommendations for Embeds
+
+| Layout | Best for | Min width |
+|--------|----------|-----------|
+| `default` | Just the shader, clean display | Any |
+| `fullscreen` | Same as default, no pane decoration | Any |
+| `tabbed` | Shader + editable code via tabs | Any |
+| `split` | Side-by-side shader + editor | 700px+ (stacks vertically below) |
+
+### Setup (npm)
 
 **With a bundler (Astro, Vite, etc.):**
 
@@ -535,7 +766,7 @@ shaders/mandelbrot/
 ├── config.json        # Optional (buffers, uniforms, textures, etc.)
 ├── common.glsl        # Optional
 ├── bufferA.glsl       # Optional (if declared in config)
-└── script.js          # Optional (ES module with setup/onFrame hooks)
+└── script.js          # Optional (ES module with setup/onFrame/dispose/onUniformChange hooks)
 ```
 
 ### `<shader-sandbox>` Attributes
@@ -632,69 +863,9 @@ handle.destroy();
 | HTTP requests | 1 bundled JS file | N fetches (config + glsl + textures) |
 | First paint | Faster (pre-bundled) | Slightly slower (sequential fetch) |
 | Dependencies | Needs Vite + Node | None — static file server only |
-| Best for | Production sites | Blogs, Quarto, static sites |
+| Best for | Production sites | Blogs, static sites |
 
 Both approaches support all the same shader features (buffers, uniforms, textures, scripts, etc.) and the same mount options.
-
-## Quarto Integration
-
-Embed shaders in [Quarto](https://quarto.org) websites using the runtime loader and a Lua shortcode extension. No build step per shader — just drop `.glsl` files alongside your `.qmd` files and reference them by name.
-
-### Setup
-
-1. Copy the extension into your Quarto project:
-
-```
-my-quarto-site/
-├── _extensions/shader-sandbox/
-│   ├── _extension.yml
-│   ├── shader-sandbox.lua
-│   └── shader-sandbox.js      ← copy from dist-runtime/
-├── shaders/
-│   ├── mandelbrot/
-│   │   └── image.glsl
-│   └── julia/
-│       ├── image.glsl
-│       ├── bufferA.glsl
-│       └── config.json
-├── index.qmd
-└── _quarto.yml
-```
-
-The extension files are provided in `templates/quarto/_extensions/shader-sandbox/` in this package. Copy `dist-runtime/shader-sandbox.js` into the same folder.
-
-Shortcode extensions are automatically available once in `_extensions/` — no `_quarto.yml` changes needed.
-
-### Usage
-
-Use the `{{< shader-sandbox >}}` shortcode in any `.qmd` file:
-
-```markdown
-{{< shader-sandbox mandelbrot >}}
-
-{{< shader-sandbox julia controls="false" theme="dark" >}}
-
-{{< shader-sandbox /custom/path/to/shader >}}
-```
-
-A bare name like `mandelbrot` resolves to `/shaders/mandelbrot/`. Paths starting with `/` are used as-is.
-
-Mount options are passed as shortcode attributes — the same ones supported by the `<shader-sandbox>` element (`controls`, `theme`, `start-paused`, `layout`, `pixel-ratio`, etc.). The default theme is `"auto"`, which inherits the page's styling.
-
-The `shader-sandbox.js` script is only included on pages that actually use the shortcode — no extra weight on pages that don't have shaders.
-
-### Shader Folders
-
-Place your shader folders in a `shaders/` directory at your site root. Quarto copies them to `_site/` as-is during render. Each folder follows the same structure as `shader dev`:
-
-```
-shaders/mandelbrot/
-├── image.glsl         # Required
-├── config.json        # Optional
-├── common.glsl        # Optional
-├── bufferA.glsl       # Optional
-└── script.js          # Optional
-```
 
 ## Using as a Library
 

@@ -23,7 +23,7 @@ export function setup(engine) {
   const rand = mulberry32(42);
 
   // Distribute points on concentric hyperbolic rings.
-  // Points per ring ∝ sinh(R) (hyperbolic circumference), with jitter.
+  // Points per ring ~ sinh(R) (hyperbolic circumference), with jitter.
   const Rmax = 4.0;
   const dR = 0.2;
   const numRings = Math.ceil(Rmax / dR);
@@ -46,7 +46,7 @@ export function setup(engine) {
   for (let j = 0; j < numRings; j++) {
     const R = (j + 0.5) * dR;
     const n = ringCounts[j];
-    const angularOffset = j * 0.7; // stagger rings (golden-ish angle)
+    const angularOffset = j * 0.7;
     for (let k = 0; k < n && diskPoints.length < COUNT; k++) {
       const baseTheta = angularOffset + (k / n) * 2 * Math.PI;
       const theta = baseTheta + (rand() - 0.5) * (2 * Math.PI / n) * 0.5;
@@ -64,27 +64,21 @@ export function setup(engine) {
     diskPoints.push([diskR * Math.cos(theta), diskR * Math.sin(theta)]);
   }
 
-  const pts = new Float32Array(COUNT * 4);
-  const cols = new Float32Array(COUNT * 4);
+  // Build point and color arrays — engine handles packing
+  const pts = [];
+  const cols = [];
 
   for (let i = 0; i < COUNT; i++) {
     const [dx, dy] = diskPoints[i];
-
     const r2 = dx * dx + dy * dy;
     const s = 1.0 - r2;
-    pts[i * 4 + 0] = (2 * dx) / s;
-    pts[i * 4 + 1] = (2 * dy) / s;
-    pts[i * 4 + 2] = (1 + r2) / s;
-    pts[i * 4 + 3] = 0;
+    pts.push([(2 * dx) / s, (2 * dy) / s, (1 + r2) / s]);
 
     const hue = ((i / COUNT) * 360 + rand() * 40) % 360;
     const [cr, cg, cb] = hslToRgb(hue, 0.6 + rand() * 0.3, 0.45 + rand() * 0.25);
-    cols[i * 4 + 0] = cr;
-    cols[i * 4 + 1] = cg;
-    cols[i * 4 + 2] = cb;
-    cols[i * 4 + 3] = 1;
+    cols.push([cr, cg, cb, 1]);
   }
 
-  engine.setUniformValue('points', pts);
-  engine.setUniformValue('colors', cols);
+  engine.setArrayUniform('points', pts);
+  engine.setArrayUniform('colors', cols);
 }

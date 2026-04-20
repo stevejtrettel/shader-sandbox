@@ -45,7 +45,7 @@ VoronoiResult voronoiSearch(vec3 P, int count) {
 
     for (int i = 0; i < points_count; i++) {
         if (i >= count) break;
-        float d = hypDist(P, points[i].xyz);
+        float d = hypDist(P, points[i]);
         if (d < result.minDist) {
             result.secondDist = result.minDist;
             result.minDist    = d;

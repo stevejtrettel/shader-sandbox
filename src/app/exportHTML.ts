@@ -13,7 +13,7 @@
  */
 
 import type { ShaderProject, ChannelSource } from '../project/types';
-import { isArrayUniform } from '../project/types';
+import { isAnyUBOUniform } from '../project/types';
 import type { ShaderEngine } from '../engine/ShaderEngine';
 import { glslTypeName } from '../engine/std140';
 
@@ -84,11 +84,11 @@ function generateStandaloneHTML(project: ShaderProject, engine: ShaderEngine): s
 
   // ── Scalar uniform values ──
   const scalarUniforms = Object.entries(project.uniforms)
-    .filter(([, def]) => !isArrayUniform(def));
+    .filter(([, def]) => !isAnyUBOUniform(def));
 
   const scalarInits: string[] = [];
   for (const [name, def] of scalarUniforms) {
-    if (isArrayUniform(def)) continue;
+    if (isAnyUBOUniform(def)) continue;
     const value = uniformValues[name] ?? def.value;
     if (def.type === 'float' || def.type === 'int') {
       scalarInits.push(`  '${name}': ${value}`);
@@ -108,18 +108,31 @@ function generateStandaloneHTML(project: ShaderProject, engine: ShaderEngine): s
 
   // ── Scalar uniform GLSL declarations ──
   const scalarDecls = scalarUniforms.map(([name, def]) => {
-    const t = def.type === 'bool' ? 'bool' : def.type;
+    const t = (def as { type: string }).type === 'bool' ? 'bool' : (def as { type: string }).type;
     return `uniform ${t} ${name};`;
   }).join('\n');
 
   // ── UBO GLSL declarations ──
-  const uboDecls = uboData.map(u =>
-    `// Array uniform: ${u.name} (max ${u.count})\n` +
-    `layout(std140) uniform _ub_${u.name} {\n` +
-    `  ${glslTypeName(u.type as any)} ${u.name}[${u.count}];\n` +
-    `};\n` +
-    `uniform int ${u.name}_count;`
-  ).join('\n\n');
+  const uboDecls = uboData.map(u => {
+    if (u.struct) {
+      // Struct array uniform
+      const fieldDecls = Object.entries(u.struct)
+        .map(([fname, ftype]) => `  ${ftype} ${fname};`)
+        .join('\n');
+      return `// Struct array uniform: ${u.name} (max ${u.count})\n` +
+        `struct _st_${u.name} {\n${fieldDecls}\n};\n` +
+        `layout(std140) uniform _ub_${u.name} {\n` +
+        `  _st_${u.name} ${u.name}[${u.count}];\n` +
+        `};\n` +
+        `uniform int ${u.name}_count;`;
+    }
+    // Plain array uniform
+    return `// Array uniform: ${u.name} (max ${u.count})\n` +
+      `layout(std140) uniform _ub_${u.name} {\n` +
+      `  ${glslTypeName(u.type as any)} ${u.name}[${u.count}];\n` +
+      `};\n` +
+      `uniform int ${u.name}_count;`;
+  }).join('\n\n');
 
   // ── UBO baked data as JS arrays ──
   const uboInits = uboData.map(u => {

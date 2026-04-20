@@ -81,7 +81,7 @@ export function loadDemo(): never {
 }
 
 export function isArrayUniform(def: unknown): boolean {
-  return !!def && typeof def === 'object' && 'count' in (def as Record<string, unknown>);
+  return !!def && typeof def === 'object' && 'count' in (def as Record<string, unknown>) && !('struct' in (def as Record<string, unknown>));
 }
 
 export function isMultiViewProject(project: unknown): boolean {

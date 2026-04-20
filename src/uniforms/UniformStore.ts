@@ -11,9 +11,10 @@ import {
   UniformValue,
   UniformValues,
   isArrayUniform,
+  isStructArrayUniform,
 } from '../project/types';
 
-import { tightFloatCount } from '../engine/std140';
+import { tightFloatCount, computeStructLayout } from '../engine/std140';
 
 export class UniformStore {
   private definitions: UniformDefinitions;
@@ -29,8 +30,10 @@ export class UniformStore {
    */
   private initializeDefaults(): void {
     for (const [name, def] of Object.entries(this.definitions)) {
-      if (isArrayUniform(def)) {
-        // Array uniforms initialize to zeroed Float32Array
+      if (isStructArrayUniform(def)) {
+        const layout = computeStructLayout(def.struct);
+        this.values[name] = new Float32Array(layout.tightFloatsPerElement * def.count);
+      } else if (isArrayUniform(def)) {
         this.values[name] = new Float32Array(tightFloatCount(def.type, def.count));
       } else {
         this.values[name] = this.cloneValue((def as { value: UniformValue }).value);
@@ -99,6 +102,23 @@ export class UniformStore {
   }
 
   /**
+   * Set without cloning — caller is responsible for not mutating the value afterward.
+   * For engine-internal use (e.g., array uniforms where data is immediately packed into UBO).
+   */
+  setRaw(name: string, value: UniformValue): boolean {
+    if (!this.has(name)) return false;
+    this.values[name] = value;
+    return true;
+  }
+
+  /**
+   * Get the internal reference without cloning. For engine-internal use only.
+   */
+  getRaw(name: string): UniformValue | undefined {
+    return this.values[name];
+  }
+
+  /**
    * Set multiple values at once.
    */
   setAll(values: Partial<UniformValues>): void {
@@ -117,7 +137,10 @@ export class UniformStore {
     if (!def) {
       return false;
     }
-    if (isArrayUniform(def)) {
+    if (isStructArrayUniform(def)) {
+      const layout = computeStructLayout(def.struct);
+      this.values[name] = new Float32Array(layout.tightFloatsPerElement * def.count);
+    } else if (isArrayUniform(def)) {
       this.values[name] = new Float32Array(tightFloatCount(def.type, def.count));
     } else {
       this.values[name] = this.cloneValue(def.value);
@@ -138,6 +161,10 @@ export class UniformStore {
   getDefault(name: string): UniformValue | undefined {
     const def = this.definitions[name];
     if (!def) return undefined;
+    if (isStructArrayUniform(def)) {
+      const layout = computeStructLayout(def.struct);
+      return new Float32Array(layout.tightFloatsPerElement * def.count);
+    }
     if (isArrayUniform(def)) return new Float32Array(tightFloatCount(def.type, def.count));
     return this.cloneValue(def.value);
   }

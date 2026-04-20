@@ -1,19 +1,21 @@
 {
   "title": "JSON Data to UBOs",
   "layout": "default",
-  "uniforms":
-   {
+  "uniforms": {
     "positions": {
       "type": "vec3",
-      "count": 27
+      "count": 27,
+      "data": "./data.json"
     },
     "directions": {
       "type": "vec3",
-      "count": 27
+      "count": 27,
+      "data": "./data.json"
     },
     "coefficients": {
       "type": "float",
-      "count": 20
+      "count": 20,
+      "data": "./data.json"
     }
   }
 }

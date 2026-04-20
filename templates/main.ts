@@ -107,8 +107,8 @@ async function initGallery() {
     let description = '';
     try {
       const config = await loader();
-      if (config?.meta?.title) title = config.meta.title;
-      if (config?.meta?.description) description = config.meta.description;
+      if (config?.title) title = config.title;
+      if (config?.description) description = config.description;
     } catch {}
     cards.push({ name, title, description });
   }

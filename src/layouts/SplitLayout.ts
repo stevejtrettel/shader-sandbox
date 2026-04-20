@@ -60,7 +60,8 @@ export class SplitLayout implements BaseLayout {
   }
 
   setUniformHandler(_handler: UniformChangeHandler): void {
-    // TODO: wire up uniform change handler to editor panel
+    // Uniform editing is handled by the floating UniformsPanel overlay,
+    // not by the code editor in this layout.
   }
 
   dispose(): void {

@@ -1,0 +1,12 @@
+{
+  "title": "Drag Points",
+  "layout": "default",
+  "controls": true,
+  "uniforms": {
+    "seeds": {
+      "struct": { "pos": "vec2", "color": "vec3" },
+      "count": 64
+    },
+    "uEdgeWidth": { "type": "float", "value": 2.5, "min": 0.5, "max": 6.0, "step": 0.1, "label": "Edge Width" }
+  }
+}
