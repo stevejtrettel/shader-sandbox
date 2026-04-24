@@ -56,6 +56,7 @@ export interface KeyEvent {
 export class InputManager {
   readonly mouse: MouseState = [0, 0, 0, 0];
   isMouseDown = false;
+  stickyMouse = false;
   readonly touchState: TouchState = {
     count: 0,
     touches: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
@@ -159,9 +160,11 @@ export class InputManager {
 
     const onMouseUp = () => {
       this.isMouseDown = false;
-      // Negate zw to signal mouse is no longer held
-      this.mouse[2] = -Math.abs(this.mouse[2]);
-      this.mouse[3] = -Math.abs(this.mouse[3]);
+      if (!this.stickyMouse) {
+        // Negate zw to signal mouse is no longer held
+        this.mouse[2] = -Math.abs(this.mouse[2]);
+        this.mouse[3] = -Math.abs(this.mouse[3]);
+      }
     };
 
     this.canvas.addEventListener('mousedown', onMouseDown as EventListener);
@@ -250,8 +253,10 @@ export class InputManager {
       // Negate zw when all touches released
       if (this.activePointers.size === 0) {
         this.isMouseDown = false;
-        this.mouse[2] = -Math.abs(this.mouse[2]);
-        this.mouse[3] = -Math.abs(this.mouse[3]);
+        if (!this.stickyMouse) {
+          this.mouse[2] = -Math.abs(this.mouse[2]);
+          this.mouse[3] = -Math.abs(this.mouse[3]);
+        }
       }
 
       this.updateTouchState();

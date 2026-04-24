@@ -117,7 +117,7 @@ const VALID_THEMES = new Set(['light', 'dark', 'system']);
 
 const VALID_TOP_LEVEL_KEYS = new Set([
   'mode', 'title', 'author', 'description', 'layout', 'theme', 'controls',
-  'common', 'startPaused', 'pixelRatio', 'uniforms', 'buffers', 'textures',
+  'common', 'startPaused', 'stickyMouse', 'pixelRatio', 'uniforms', 'buffers', 'textures',
   'Image', 'BufferA', 'BufferB', 'BufferC', 'BufferD',
   'views', // multi-view projects
 ]);

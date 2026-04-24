@@ -49,6 +49,7 @@ export interface ShaderProjectInput {
   theme?: ThemeMode;
   controls?: boolean;
   startPaused?: boolean;
+  stickyMouse?: boolean;
   pixelRatio?: number;
   commonSource: string | null;
   passes: ShaderProject['passes'];
@@ -75,6 +76,7 @@ export function buildShaderProject(input: ShaderProjectInput): ShaderProject {
     theme: input.theme ?? DEFAULT_THEME,
     controls: input.controls ?? DEFAULT_CONTROLS,
     startPaused: input.startPaused ?? false,
+    stickyMouse: input.stickyMouse ?? false,
     pixelRatio: input.pixelRatio ?? null,
     commonSource: input.commonSource,
     passes: input.passes,
@@ -518,6 +520,7 @@ async function loadShadertoyProject(
     theme: config.theme,
     controls: config.controls,
     startPaused: config.startPaused,
+    stickyMouse: config.stickyMouse,
     pixelRatio: config.pixelRatio,
     commonSource,
     passes,
@@ -571,6 +574,7 @@ async function loadStandardProject(
     theme: config.theme,
     controls: config.controls,
     startPaused: config.startPaused,
+    stickyMouse: config.stickyMouse,
     pixelRatio: config.pixelRatio,
     commonSource,
     passes: {
@@ -689,6 +693,7 @@ async function loadStandardWithNamedBuffers(
     theme: config.theme,
     controls: config.controls,
     startPaused: config.startPaused,
+    stickyMouse: config.stickyMouse,
     pixelRatio: config.pixelRatio,
     commonSource,
     passes,

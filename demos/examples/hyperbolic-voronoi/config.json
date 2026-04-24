@@ -2,6 +2,7 @@
   "title": "Hyperbolic Voronoi",
   "layout": "default",
   "controls": true,
+  "stickyMouse": true,
   "uniforms": {
     "points": { "type": "vec3", "count": 1000 },
     "colors": { "type": "vec4", "count": 1000 },

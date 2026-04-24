@@ -38,6 +38,8 @@ export interface MountOptions {
   theme?: ThemeMode;
   /** Override whether the shader starts paused. */
   startPaused?: boolean;
+  /** Override whether iMouse.zw stays positive after release (sticky mouse). */
+  stickyMouse?: boolean;
 }
 
 /** Consumer-facing options (everything except `project`, which is loaded by the caller). */
@@ -69,6 +71,7 @@ export function mount(el: HTMLElement, options: MountOptions): MountHandle {
   if (options.controls !== undefined) project.controls = options.controls;
   if (options.theme !== undefined) project.theme = options.theme;
   if (options.startPaused !== undefined) project.startPaused = options.startPaused;
+  if (options.stickyMouse !== undefined) project.stickyMouse = options.stickyMouse;
   if (options.pixelRatio !== undefined) project.pixelRatio = options.pixelRatio;
 
   // Toggle decoration

@@ -247,6 +247,7 @@ async function loadMultiViewDemo(
     theme: config.theme ?? 'light',
     controls: config.controls ?? DEFAULT_CONTROLS,
     startPaused: config.startPaused ?? false,
+    stickyMouse: config.stickyMouse ?? false,
     pixelRatio: config.pixelRatio ?? null,
     commonSource,
     uniforms: config.uniforms ?? {},

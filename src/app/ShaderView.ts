@@ -146,6 +146,7 @@ export class ShaderView {
 
     // Input tracking
     this.input = new InputManager(this.canvas, this._pixelRatio, opts.keyboardTarget);
+    this.input.stickyMouse = this._project.stickyMouse;
     this.input.onFirstGesture = () => this.initMediaOnGesture();
 
     // Initialize video files (muted, no gesture needed)

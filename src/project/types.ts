@@ -355,6 +355,10 @@ export interface ShadertoyConfig {
   /** Start paused on first frame (default: false) */
   startPaused?: boolean;
 
+  /** If true, releasing the mouse leaves iMouse.zw positive so shaders that
+   *  gate on `iMouse.z > 0.0` keep the last drag position (default: false). */
+  stickyMouse?: boolean;
+
   // Resolution settings
   /** Pixel ratio multiplier (default: window.devicePixelRatio). Use <1 for lower resolution. */
   pixelRatio?: number;
@@ -399,6 +403,9 @@ export interface StandardConfig {
   controls?: boolean;
   common?: string;
   startPaused?: boolean;
+  /** If true, releasing the mouse leaves iMouse.zw positive so shaders that
+   *  gate on `iMouse.z > 0.0` keep the last drag position (default: false). */
+  stickyMouse?: boolean;
   pixelRatio?: number;
 
   // Custom uniforms
@@ -582,6 +589,14 @@ export interface ShaderProject {
   startPaused: boolean;
 
   /**
+   * If true, releasing the mouse/touch leaves iMouse.zw positive (as if still
+   * held), so shaders that gate on `iMouse.z > 0.0` retain the last drag
+   * position instead of reverting to defaults. Defaults to false (standard
+   * Shadertoy behavior). Note: iMousePressed still reflects real held state.
+   */
+  stickyMouse: boolean;
+
+  /**
    * Pixel ratio for resolution scaling.
    * Defaults to null (use window.devicePixelRatio).
    * Use values < 1 for lower resolution (better performance).
@@ -663,6 +678,7 @@ export interface MultiViewProject {
   theme: ThemeMode;
   controls: boolean;
   startPaused: boolean;
+  stickyMouse: boolean;
   pixelRatio: number | null;
   commonSource: string | null;
   uniforms: UniformDefinitions;

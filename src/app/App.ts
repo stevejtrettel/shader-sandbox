@@ -276,6 +276,7 @@ export class App {
       theme: mvProject.theme,
       controls: false,
       startPaused: mvProject.startPaused,
+      stickyMouse: mvProject.stickyMouse,
       pixelRatio: mvProject.pixelRatio,
       commonSource: mvProject.commonSource,
       passes: view.passes,

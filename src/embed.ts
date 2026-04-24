@@ -27,6 +27,7 @@ export async function mount(
     controls: options?.controls,
     theme: options?.theme,
     startPaused: options?.startPaused,
+    stickyMouse: options?.stickyMouse,
   });
 }
 
