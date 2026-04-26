@@ -478,13 +478,9 @@ export async function mount(el, options = {}) {
 
       const outDir = path.join(cwd, 'dist', shaderName);
 
-      // Copy live-app.js custom element to output
-      const liveAppSrc = path.join(packageRoot, 'templates', 'live-app.js');
-      if (fs.existsSync(liveAppSrc)) {
-        fs.copyFileSync(liveAppSrc, path.join(outDir, 'live-app.js'));
-      }
-
-      // Generate a convenience index.html that uses <live-app>
+      // Generate a standalone index.html that inline-mounts main.js.
+      // For embedding into a host site, ship templates/live-app.js once at /js/live-app.js
+      // and use <live-app src="…/main.js"> there.
       const prettyTitle = shaderName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
       const indexHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -492,11 +488,17 @@ export async function mount(el, options = {}) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${prettyTitle}</title>
-  <script type="module" src="./live-app.js"><\/script>
-  <style>* { margin: 0; padding: 0; box-sizing: border-box; }</style>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body,#app{width:100%;height:100%;overflow:hidden}
+  </style>
 </head>
 <body>
-  <live-app src="./main.js" fullpage><\/live-app>
+  <div id="app"></div>
+  <script type="module">
+    import { mount } from './main.js';
+    mount(document.getElementById('app'));
+  </script>
 </body>
 </html>`;
       fs.writeFileSync(path.join(outDir, 'index.html'), indexHtml);
@@ -701,17 +703,17 @@ switch (command) {
       console.log('');
       console.log('Files:');
       console.log(`  dist/${shaderName}/main.js       ES module (exports mount)`);
-      console.log(`  dist/${shaderName}/live-app.js    <live-app> custom element`);
-      console.log(`  dist/${shaderName}/index.html     Standalone page`);
+      console.log(`  dist/${shaderName}/index.html    Standalone page`);
       console.log('');
-      console.log('Embed in your site:');
-      console.log(`  <script type="module" src="/js/live-app.js"><\/script>`);
-      console.log(`  <live-app src="/visualizations/${shaderName}.js" style="width:100%;height:400px;display:block"><\/live-app>`);
-      console.log('');
-      console.log('Or import directly:');
+      console.log('Import directly:');
       console.log(`  import { mount } from './${shaderName}/main.js';`);
       console.log(`  const handle = await mount(myElement);`);
       console.log(`  // later: handle.destroy();`);
+      console.log('');
+      console.log('Or embed via <live-app> (copy the custom element once):');
+      console.log(`  cp node_modules/shader-sandbox/templates/live-app.js <site>/public/js/`);
+      console.log(`  <script type="module" src="/js/live-app.js"><\/script>`);
+      console.log(`  <live-app src="/visualizations/${shaderName}.js" style="width:100%;height:400px;display:block"><\/live-app>`);
       process.exit(0);
     }).catch((err) => {
       console.error(`Error: ${err.message}`);

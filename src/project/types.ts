@@ -348,7 +348,21 @@ export interface ShadertoyConfig {
   // Settings
   layout?: 'fullscreen' | 'default' | 'split' | 'tabbed';
   theme?: ThemeMode;
+  /** Optional master switch for `stats` and `playback`. When true: both shown.
+   *  When false or unset: both hidden by default. Explicit per-field values
+   *  always win. Does not affect `uniformsUI`. */
   controls?: boolean;
+  /** Show the FPS / resolution overlay. Default false (opt in via `controls: true`
+   *  or `stats: true`). */
+  stats?: boolean;
+  /** Show the playback bar (play/pause, screenshot, record). Default false (opt
+   *  in via `controls: true` or `playback: true`). */
+  playback?: boolean;
+  /** How the uniforms UI is presented. 'panel' = collapsible toggle in top-right,
+   *  'inline' = bare slider over the shader (bottom-right), 'off' = hidden.
+   *  Default 'panel'. Panel/inline only render when at least one uniform has a
+   *  UI control, so configs without UI uniforms get no panel automatically. */
+  uniformsUI?: 'panel' | 'inline' | 'off';
   common?: string;
 
   // Playback settings
@@ -400,7 +414,14 @@ export interface StandardConfig {
   // Settings
   layout?: 'fullscreen' | 'default' | 'split' | 'tabbed';
   theme?: ThemeMode;
+  /** Optional master switch — see ShadertoyConfig for semantics. */
   controls?: boolean;
+  /** Show the FPS / resolution overlay. Default false. */
+  stats?: boolean;
+  /** Show the playback bar. Default false. */
+  playback?: boolean;
+  /** How the uniforms UI is presented: 'panel' (default) | 'inline' | 'off'. */
+  uniformsUI?: 'panel' | 'inline' | 'off';
   common?: string;
   startPaused?: boolean;
   /** If true, releasing the mouse leaves iMouse.zw positive so shaders that
@@ -578,9 +599,18 @@ export interface ShaderProject {
   theme: ThemeMode;
 
   /**
-   * Whether to show playback controls (play/pause, reset).
+   * Optional master switch for `stats` and `playback`. When true, both default
+   * to shown; when false or unset, both default to hidden. Explicit per-field
+   * values always win. Does not affect `uniformsUI`.
    */
-  controls: boolean;
+  controls?: boolean;
+
+  /** Show the FPS / resolution overlay. Undefined → follow `controls`, then default false. */
+  stats?: boolean;
+  /** Show the playback bar. Undefined → follow `controls`, then default false. */
+  playback?: boolean;
+  /** Uniforms UI presentation. Undefined → 'panel'. Independent of `controls`. */
+  uniformsUI?: 'panel' | 'inline' | 'off';
 
   /**
    * Whether to start paused on first frame.
@@ -676,7 +706,10 @@ export interface MultiViewProject {
   root: string;
   meta: ShaderMeta;
   theme: ThemeMode;
-  controls: boolean;
+  controls?: boolean;
+  stats?: boolean;
+  playback?: boolean;
+  uniformsUI?: 'panel' | 'inline' | 'off';
   startPaused: boolean;
   stickyMouse: boolean;
   pixelRatio: number | null;

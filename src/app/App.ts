@@ -146,8 +146,19 @@ export class App {
 
     this.recorder = new Recorder(this.primaryView.canvas, this.container, this.project.root);
 
-    // Only create stats panel when controls are enabled
-    if (this.project.controls !== false) {
+    // Resolve UI fields. Explicit per-field values always win; otherwise each
+    // falls back to the optional `controls` master, then to its own default.
+    // - stats/playback default off — opt in with `controls: true` or per-field.
+    // - uniformsUI defaults to 'panel' regardless of `controls`; the panel
+    //   only renders when at least one uniform has a UI control (guard below).
+    const stats = this.project.stats ?? this.project.controls ?? false;
+    const playback = this.project.playback ?? this.project.controls ?? false;
+    const uniformsUI: 'panel' | 'inline' | 'off' = this.project.uniformsUI ?? 'panel';
+    const showUniforms = uniformsUI !== 'off';
+    const uniformsCollapsible = uniformsUI === 'panel';
+
+    // Stats panel
+    if (stats) {
       this.statsPanel = new StatsPanel(this.container);
       this.statsPanel.updateResolution(this.primaryView.canvas.width, this.primaryView.canvas.height);
     }
@@ -198,7 +209,7 @@ export class App {
     }
 
     // Create playback controls if enabled
-    if (this.project.controls && !opts.skipPlaybackControls) {
+    if (playback && !opts.skipPlaybackControls) {
       this.playbackControls = new PlaybackControls(this.container, {
         onTogglePlayPause: () => this.togglePlayPause(),
         onReset: () => this.reset(),
@@ -238,20 +249,21 @@ export class App {
       }
     }
 
-    // Create floating uniforms panel (suppressed when controls are disabled)
-    if (this.project.controls !== false && !opts.skipUniformsPanel && this.project.uniforms && Object.values(this.project.uniforms).some(def => hasUIControl(def))) {
+    // Create floating uniforms panel (also requires at least one uniform with a UI control)
+    if (showUniforms && !opts.skipUniformsPanel && this.project.uniforms && Object.values(this.project.uniforms).some(def => hasUIControl(def))) {
       this.uniformsPanel = new UniformsPanel({
         container: this.container,
         uniforms: this.project.uniforms,
+        collapsible: uniformsCollapsible,
         onChange: (name, value) => {
           this.setUniformValue(name, value);
         },
       });
     }
 
-    // Set up keyboard shortcuts
+    // Set up keyboard shortcuts (space/R only meaningful when playback bar is shown)
     this.setupGlobalShortcuts();
-    if (this.project.controls) {
+    if (playback) {
       this.setupKeyboardShortcuts();
     }
   }
@@ -275,6 +287,7 @@ export class App {
       layout: 'fullscreen',
       theme: mvProject.theme,
       controls: false,
+      uniformsUI: mvProject.uniformsUI,
       startPaused: mvProject.startPaused,
       stickyMouse: mvProject.stickyMouse,
       pixelRatio: mvProject.pixelRatio,

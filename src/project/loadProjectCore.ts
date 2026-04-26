@@ -31,7 +31,6 @@ import {
   CHANNEL_KEYS,
   BUFFER_PASS_NAMES,
   DEFAULT_LAYOUT,
-  DEFAULT_CONTROLS,
   DEFAULT_THEME,
 } from './configHelpers';
 
@@ -48,6 +47,9 @@ export interface ShaderProjectInput {
   layout?: 'fullscreen' | 'default' | 'split' | 'tabbed';
   theme?: ThemeMode;
   controls?: boolean;
+  stats?: boolean;
+  playback?: boolean;
+  uniformsUI?: 'panel' | 'inline' | 'off';
   startPaused?: boolean;
   stickyMouse?: boolean;
   pixelRatio?: number;
@@ -74,7 +76,10 @@ export function buildShaderProject(input: ShaderProjectInput): ShaderProject {
     },
     layout: input.layout ?? DEFAULT_LAYOUT,
     theme: input.theme ?? DEFAULT_THEME,
-    controls: input.controls ?? DEFAULT_CONTROLS,
+    controls: input.controls,
+    stats: input.stats,
+    playback: input.playback,
+    uniformsUI: input.uniformsUI,
     startPaused: input.startPaused ?? false,
     stickyMouse: input.stickyMouse ?? false,
     pixelRatio: input.pixelRatio ?? null,
@@ -519,6 +524,9 @@ async function loadShadertoyProject(
     layout: config.layout,
     theme: config.theme,
     controls: config.controls,
+    stats: config.stats,
+    playback: config.playback,
+    uniformsUI: config.uniformsUI,
     startPaused: config.startPaused,
     stickyMouse: config.stickyMouse,
     pixelRatio: config.pixelRatio,
@@ -573,6 +581,9 @@ async function loadStandardProject(
     layout: config.layout,
     theme: config.theme,
     controls: config.controls,
+    stats: config.stats,
+    playback: config.playback,
+    uniformsUI: config.uniformsUI,
     startPaused: config.startPaused,
     stickyMouse: config.stickyMouse,
     pixelRatio: config.pixelRatio,
@@ -692,6 +703,9 @@ async function loadStandardWithNamedBuffers(
     layout: config.layout,
     theme: config.theme,
     controls: config.controls,
+    stats: config.stats,
+    playback: config.playback,
+    uniformsUI: config.uniformsUI,
     startPaused: config.startPaused,
     stickyMouse: config.stickyMouse,
     pixelRatio: config.pixelRatio,

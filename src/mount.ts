@@ -32,8 +32,14 @@ export interface MountOptions {
   pixelRatio?: number;
   /** Override the layout mode from config. */
   layout?: LayoutMode;
-  /** Override whether playback controls are shown. */
+  /** Override the optional master UI switch. */
   controls?: boolean;
+  /** Override the FPS / resolution overlay. */
+  stats?: boolean;
+  /** Override the playback bar. */
+  playback?: boolean;
+  /** Override the uniforms UI presentation: 'panel' | 'inline' | 'off'. */
+  uniformsUI?: 'panel' | 'inline' | 'off';
   /** Override the color theme. */
   theme?: ThemeMode;
   /** Override whether the shader starts paused. */
@@ -69,6 +75,9 @@ export function mount(el: HTMLElement, options: MountOptions): MountHandle {
   const project = { ...options.project } as ShaderProject | MultiViewProject;
   if (options.layout !== undefined) (project as ShaderProject).layout = options.layout;
   if (options.controls !== undefined) project.controls = options.controls;
+  if (options.stats !== undefined) project.stats = options.stats;
+  if (options.playback !== undefined) project.playback = options.playback;
+  if (options.uniformsUI !== undefined) project.uniformsUI = options.uniformsUI;
   if (options.theme !== undefined) project.theme = options.theme;
   if (options.startPaused !== undefined) project.startPaused = options.startPaused;
   if (options.stickyMouse !== undefined) project.stickyMouse = options.stickyMouse;

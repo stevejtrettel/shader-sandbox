@@ -23,10 +23,16 @@ export default defineConfig({
   },
   build: {
     outDir: `dist/${shaderName}`,
+    // In build mode, use library mode so the entry's `export { mount }` is preserved.
+    // Without this, vite's default app mode tree-shakes exports, leaving an empty bundle.
+    ...(useBuildEntry ? {
+      lib: {
+        entry: './_build-entry.js',
+        formats: ['es'],
+        fileName: () => 'main.js',
+      },
+    } : {}),
     rollupOptions: {
-      // In build mode, use the generated JS entry directly (produces an ES module).
-      // In dev/other mode, fall back to default index.html entry.
-      ...(useBuildEntry ? { input: './_build-entry.js' } : {}),
       output: {
         format: 'es',
         inlineDynamicImports: true,

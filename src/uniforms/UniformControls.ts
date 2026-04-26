@@ -33,7 +33,8 @@ export interface UniformControlsOptions {
 }
 
 interface SliderRowResult {
-  element: HTMLElement;
+  /** The label-row + slider elements in source order. Caller appends both. */
+  elements: HTMLElement[];
   update: (value: number) => void;
 }
 
@@ -172,16 +173,12 @@ export class UniformControls {
       valueDisplay.textContent = opts.format(v);
     });
 
-    const container = document.createElement('div');
-    container.appendChild(wrapper);
-    container.appendChild(slider);
-
     const update = (v: number) => {
       slider.value = String(v);
       valueDisplay.textContent = opts.format(v);
     };
 
-    return { element: container, update };
+    return { elements: [wrapper, slider], update };
   }
 
   // ===========================================================================
@@ -190,7 +187,7 @@ export class UniformControls {
 
   private createFloatSlider(name: string, def: FloatUniformDefinition): { element: HTMLElement; update: (v: UniformValue) => void } {
     const step = def.step ?? 0.01;
-    const { element, update: sliderUpdate } = this.createSliderRow({
+    const { elements, update: sliderUpdate } = this.createSliderRow({
       label: def.label ?? name,
       min: def.min ?? 0,
       max: def.max ?? 1,
@@ -205,7 +202,7 @@ export class UniformControls {
 
     const wrapper = document.createElement('div');
     wrapper.className = 'uniform-control uniform-control-float';
-    wrapper.appendChild(element);
+    for (const el of elements) wrapper.appendChild(el);
 
     return {
       element: wrapper,
@@ -218,7 +215,7 @@ export class UniformControls {
   // ===========================================================================
 
   private createIntSlider(name: string, def: IntUniformDefinition): { element: HTMLElement; update: (v: UniformValue) => void } {
-    const { element, update: sliderUpdate } = this.createSliderRow({
+    const { elements, update: sliderUpdate } = this.createSliderRow({
       label: def.label ?? name,
       min: def.min ?? 0,
       max: def.max ?? 10,
@@ -234,7 +231,7 @@ export class UniformControls {
 
     const wrapper = document.createElement('div');
     wrapper.className = 'uniform-control uniform-control-int';
-    wrapper.appendChild(element);
+    for (const el of elements) wrapper.appendChild(el);
 
     return {
       element: wrapper,
@@ -508,7 +505,7 @@ export class UniformControls {
 
     // Alpha slider
     const alphaStep = def.step?.[3] ?? 0.01;
-    const { element: alphaEl, update: alphaUpdate } = this.createSliderRow({
+    const { elements: alphaElements, update: alphaUpdate } = this.createSliderRow({
       label: 'Alpha',
       min: def.min?.[3] ?? 0,
       max: def.max?.[3] ?? 1,
@@ -524,7 +521,7 @@ export class UniformControls {
 
     wrapper.appendChild(labelRow);
     wrapper.appendChild(colorWrapper);
-    wrapper.appendChild(alphaEl);
+    for (const el of alphaElements) wrapper.appendChild(el);
 
     return {
       element: wrapper,
@@ -560,7 +557,7 @@ export class UniformControls {
 
     components.forEach((comp, i) => {
       const step = def.step?.[i] ?? 0.01;
-      const { element: row, update: rowUpdate } = this.createSliderRow({
+      const { elements: rowElements, update: rowUpdate } = this.createSliderRow({
         label: comp,
         min: def.min?.[i] ?? 0,
         max: def.max?.[i] ?? 1,
@@ -575,25 +572,21 @@ export class UniformControls {
       });
 
       // Style the row for vec component layout
-      const labelRow = row.querySelector('.uniform-control-label-row');
-      if (labelRow) {
-        labelRow.classList.add('uniform-control-vec-slider-row');
-        const lbl = labelRow.querySelector('.uniform-control-label');
-        if (lbl) {
-          lbl.classList.add('uniform-control-vec-component');
-        }
-        const val = labelRow.querySelector('.uniform-control-value');
-        if (val) {
-          val.classList.add('uniform-control-vec-value');
-        }
-      }
-      const slider = row.querySelector('.uniform-control-slider');
-      if (slider) {
-        slider.classList.add('uniform-control-vec-slider');
-      }
+      const [labelRow, slider] = rowElements;
+      labelRow.classList.add('uniform-control-vec-slider-row');
+      labelRow.querySelector('.uniform-control-label')?.classList.add('uniform-control-vec-component');
+      labelRow.querySelector('.uniform-control-value')?.classList.add('uniform-control-vec-value');
+      slider.classList.add('uniform-control-vec-slider');
+
+      // Group label-row + slider as a single visual unit so the vec wrapper's
+      // gap separates components rather than every label-row/slider pair.
+      const componentGroup = document.createElement('div');
+      componentGroup.className = 'uniform-control-vec-component-group';
+      componentGroup.appendChild(labelRow);
+      componentGroup.appendChild(slider);
 
       sliderUpdaters.push(rowUpdate);
-      wrapper.appendChild(row);
+      wrapper.appendChild(componentGroup);
     });
 
     return {

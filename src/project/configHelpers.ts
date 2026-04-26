@@ -74,8 +74,6 @@ export const CHANNEL_KEYS = ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3']
 /** Default layout for projects. */
 export const DEFAULT_LAYOUT = 'default' as const;
 
-/** Default controls setting. */
-export const DEFAULT_CONTROLS = true;
 
 /** Default theme. */
 export const DEFAULT_THEME = 'auto' as const;
@@ -117,6 +115,7 @@ const VALID_THEMES = new Set(['light', 'dark', 'system']);
 
 const VALID_TOP_LEVEL_KEYS = new Set([
   'mode', 'title', 'author', 'description', 'layout', 'theme', 'controls',
+  'stats', 'playback', 'uniformsUI',
   'common', 'startPaused', 'stickyMouse', 'pixelRatio', 'uniforms', 'buffers', 'textures',
   'Image', 'BufferA', 'BufferB', 'BufferC', 'BufferD',
   'views', // multi-view projects
