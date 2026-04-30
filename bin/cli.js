@@ -438,6 +438,18 @@ export async function mount(el, options = {}) {
   const project = await getProject();
   return _mount(el, { project, ...options });
 }
+
+// Auto-mount when a #app element exists at load time. Makes the built
+// dist/<shader>/ folder a drop-anywhere bundle: any HTML with
+// <div id="app"></div> and <script type="module" src="./main.js"> just works.
+// Safe for library use too — if no #app exists, this is a no-op and callers
+// can still import { mount } and pass their own element.
+if (typeof document !== 'undefined') {
+  const _autoEl = document.getElementById('app');
+  if (_autoEl) {
+    mount(_autoEl).catch((e) => console.error('shader auto-mount failed:', e));
+  }
+}
 `.trimStart();
 
     fs.writeFileSync(buildEntryPath, buildEntryCode);
@@ -478,9 +490,9 @@ export async function mount(el, options = {}) {
 
       const outDir = path.join(cwd, 'dist', shaderName);
 
-      // Generate a standalone index.html that inline-mounts main.js.
-      // For embedding into a host site, ship templates/live-app.js once at /js/live-app.js
-      // and use <live-app src="…/main.js"> there.
+      // Generate a standalone index.html. main.js auto-mounts into #app on
+      // load, so this folder is drop-anywhere: any HTML with <div id="app">
+      // and a <script type="module" src="./main.js"> just works.
       const prettyTitle = shaderName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
       const indexHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -495,10 +507,7 @@ export async function mount(el, options = {}) {
 </head>
 <body>
   <div id="app"></div>
-  <script type="module">
-    import { mount } from './main.js';
-    mount(document.getElementById('app'));
-  </script>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>`;
       fs.writeFileSync(path.join(outDir, 'index.html'), indexHtml);
