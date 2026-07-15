@@ -667,7 +667,7 @@ export class UniformControls {
   /**
    * Destroy the controls and clean up.
    */
-  destroy(): void {
+  dispose(): void {
     for (const { type, handler } of this.documentListeners) {
       document.removeEventListener(type, handler);
     }

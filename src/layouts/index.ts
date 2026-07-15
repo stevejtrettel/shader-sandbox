@@ -12,16 +12,14 @@
  * - Inset: Main view with small overlay
  */
 
-export { FullscreenLayout } from './FullscreenLayout';
-export { DefaultLayout } from './DefaultLayout';
+export { FullscreenLayout, DefaultLayout } from './CanvasLayout';
 export { SplitLayout } from './SplitLayout';
 export { TabbedLayout } from './TabbedLayout';
 export { GridLayout } from './GridLayout';
 export { InsetViewLayout } from './InsetViewLayout';
 export type { BaseLayout, LayoutOptions, LayoutMode, MultiViewLayout, MultiViewLayoutOptions } from './types';
 
-import { FullscreenLayout } from './FullscreenLayout';
-import { DefaultLayout } from './DefaultLayout';
+import { FullscreenLayout, DefaultLayout } from './CanvasLayout';
 import { SplitLayout } from './SplitLayout';
 import { TabbedLayout } from './TabbedLayout';
 import { GridLayout } from './GridLayout';

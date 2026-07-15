@@ -10,17 +10,30 @@
 
 import { ShaderProject, PassName } from '../project/types';
 import { RecompileHandler } from '../layouts/types';
+import type { EditorInstance } from './prism-editor';
 
 import './editor-panel.css';
 
+type ViewTab = { kind: 'view'; name: string };
 type CodeTab = { kind: 'code'; name: string; passName: 'common' | PassName; source: string };
 type ImageTab = { kind: 'image'; name: string; url: string };
-type Tab = CodeTab | ImageTab;
+type Tab = ViewTab | CodeTab | ImageTab;
 
-interface EditorInstance {
-  getSource: () => string;
-  setSource: (source: string) => void;
-  destroy: () => void;
+export interface EditorPanelOptions {
+  /**
+   * Optional leading tab that shows an external element instead of an
+   * editor — used by TabbedLayout to put the live canvas on the first tab.
+   * The element is adopted into the panel's content area and toggled with
+   * `visibility` (never display:none, which would zero the canvas size).
+   */
+  viewTab?: { name: string; element: HTMLElement };
+
+  /**
+   * Narrow the panel to a single pass ('common' | 'Image' | 'BufferA'…):
+   * one tabless code block instead of the full tab bar. Used by
+   * <shader-editor pass="...">.
+   */
+  pass?: 'common' | PassName;
 }
 
 export class EditorPanel {
@@ -30,6 +43,8 @@ export class EditorPanel {
 
   private tabBar: HTMLElement;
   private contentArea: HTMLElement;
+  private viewSlot: HTMLElement | null = null;
+  private editorHost: HTMLElement;
   private copyButton: HTMLElement;
   private recompileButton: HTMLElement;
   private errorDisplay: HTMLElement;
@@ -46,21 +61,42 @@ export class EditorPanel {
   // Stored for cleanup in dispose()
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
-  constructor(container: HTMLElement, project: ShaderProject) {
+  constructor(container: HTMLElement, project: ShaderProject, opts: EditorPanelOptions = {}) {
     this.container = container;
     this.project = project;
 
     // Build tabs
-    this.buildTabs();
+    this.buildTabs(opts.viewTab?.name);
 
-    // Create tab bar
+    // Single-pass mode: keep only the requested code tab, no tab bar
+    if (opts.pass !== undefined) {
+      this.tabs = this.tabs.filter(t => t.kind === 'code' && t.passName === opts.pass);
+      if (this.tabs.length === 0) {
+        console.warn(`EditorPanel: pass '${opts.pass}' not found in project`);
+      }
+    }
+
+    // Create tab bar (hidden entirely in single-pass mode)
     this.tabBar = document.createElement('div');
     this.tabBar.className = 'editor-tab-bar';
+    if (opts.pass !== undefined) this.tabBar.style.display = 'none';
     this.buildTabBar();
 
-    // Create content area
+    // Create content area with two stacked slots: the external view (if
+    // any) and the editor host. Both fill the area; visibility toggles.
     this.contentArea = document.createElement('div');
     this.contentArea.className = 'editor-content-area';
+
+    if (opts.viewTab) {
+      this.viewSlot = document.createElement('div');
+      this.viewSlot.className = 'editor-view-slot';
+      this.viewSlot.appendChild(opts.viewTab.element);
+      this.contentArea.appendChild(this.viewSlot);
+    }
+
+    this.editorHost = document.createElement('div');
+    this.editorHost.className = 'editor-host-slot';
+    this.contentArea.appendChild(this.editorHost);
 
     // Create copy button (icon only)
     this.copyButton = document.createElement('button');
@@ -119,14 +155,19 @@ export class EditorPanel {
       this.keydownHandler = null;
     }
     if (this.editorInstance) {
-      this.editorInstance.destroy();
+      this.editorInstance.dispose();
       this.editorInstance = null;
     }
     this.container.innerHTML = '';
   }
 
-  private buildTabs(): void {
+  private buildTabs(viewTabName?: string): void {
     this.tabs = [];
+
+    // 0. External view tab (e.g. live canvas), always first
+    if (viewTabName !== undefined) {
+      this.tabs.push({ kind: 'view', name: viewTabName });
+    }
 
     // 1. Common (if exists)
     if (this.project.commonSource) {
@@ -181,6 +222,8 @@ export class EditorPanel {
       tabButton.className = 'editor-tab-button';
       if (tab.kind === 'image') {
         tabButton.classList.add('image-tab');
+      } else if (tab.kind === 'view') {
+        tabButton.classList.add('view-tab');
       }
       tabButton.textContent = tab.name;
       if (index === this.activeTabIndex) {
@@ -206,12 +249,25 @@ export class EditorPanel {
 
     // Destroy previous editor instance before clearing DOM
     if (this.editorInstance) {
-      this.editorInstance.destroy();
+      this.editorInstance.dispose();
       this.editorInstance = null;
     }
 
-    // Clear content area
-    this.contentArea.innerHTML = '';
+    // Clear the editor host (the view slot is never cleared — the layout
+    // owns the element inside it)
+    this.editorHost.innerHTML = '';
+
+    if (tab.kind === 'view') {
+      // Show the external view, hide editor chrome
+      if (this.viewSlot) this.viewSlot.style.visibility = 'visible';
+      this.editorHost.style.visibility = 'hidden';
+      this.copyButton.style.display = 'none';
+      this.recompileButton.style.display = 'none';
+      return;
+    }
+
+    if (this.viewSlot) this.viewSlot.style.visibility = 'hidden';
+    this.editorHost.style.visibility = 'visible';
 
     if (tab.kind === 'code') {
       // Show buttons
@@ -224,7 +280,7 @@ export class EditorPanel {
       // Create editor container
       const editorContainer = document.createElement('div');
       editorContainer.className = 'editor-prism-container';
-      this.contentArea.appendChild(editorContainer);
+      this.editorHost.appendChild(editorContainer);
 
       // Dynamically load editor and create instance
       try {
@@ -254,11 +310,11 @@ export class EditorPanel {
       imgContainer.className = 'editor-image-viewer';
 
       const img = document.createElement('img');
-      img.src = (tab as ImageTab).url;
+      img.src = tab.url;
       img.alt = tab.name;
 
       imgContainer.appendChild(img);
-      this.contentArea.appendChild(imgContainer);
+      this.editorHost.appendChild(imgContainer);
     }
   }
 
@@ -336,9 +392,11 @@ export class EditorPanel {
   }
 
   private setupKeyboardShortcut(): void {
-    // Listen for Ctrl+Enter / Cmd+Enter
+    // Listen for Ctrl+Enter / Cmd+Enter — only while a code tab is active,
+    // so the shortcut can't hijack keys meant for the shader/view tab
     this.keydownHandler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if (this.tabs[this.activeTabIndex]?.kind !== 'code') return;
         e.preventDefault();
         this.recompile();
       }

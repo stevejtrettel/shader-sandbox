@@ -11,15 +11,15 @@ import './recording-panel.css';
 import { UniformControls } from '../uniforms/UniformControls';
 import { UniformDefinitions, UniformValue, hasUIControl } from '../project/types';
 import { isMP4Supported } from './Mp4Encoder';
-
-// Resolution presets: [label, width, height]
-const RESOLUTION_PRESETS: [string, number, number][] = [
-  ['720p', 1280, 720],
-  ['1080p', 1920, 1080],
-  ['1440p', 2560, 1440],
-  ['4K', 3840, 2160],
-  ['8K', 7680, 4320],
-];
+import {
+  createPanelShell,
+  createSection,
+  createCollapsibleSection,
+  createResolutionSection,
+  createProgressBar,
+  createNumberInput,
+  ProgressBar,
+} from './panel-kit';
 
 export type RecordingFormat = 'mp4' | 'webm' | 'frames';
 export type RecordingQuality = 'low' | 'medium' | 'high' | 'ultra';
@@ -54,14 +54,11 @@ export class RecordingPanel {
   private callbacks: RecordingPanelCallbacks;
   private uniformControls: UniformControls | null = null;
   private cancelRenderFn: (() => void) | null = null;
+  private rendering = false;
 
   // Resolution
-  private presetSelect: HTMLSelectElement;
   private widthInput: HTMLInputElement;
   private heightInput: HTMLInputElement;
-  private aspectLocked: boolean = true;
-  private aspectRatio: number;
-  private lockButton: HTMLElement;
 
   // Timing
   private startTimeInput: HTMLInputElement;
@@ -85,9 +82,7 @@ export class RecordingPanel {
   // Progress/actions
   private bodyEl: HTMLElement;
   private actionsEl: HTMLElement;
-  private progressEl: HTMLElement;
-  private progressBar: HTMLElement;
-  private progressText: HTMLElement;
+  private progress: ProgressBar;
   private warmupNotice: HTMLElement | null = null;
 
   constructor(
@@ -100,114 +95,44 @@ export class RecordingPanel {
     this.callbacks = callbacks;
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
-    this.aspectRatio = canvasWidth / canvasHeight;
     this.hasBuffers = callbacks.hasBufferPasses();
 
-    // Backdrop
-    this.backdrop = document.createElement('div');
-    this.backdrop.className = 'recording-panel-backdrop';
-    this.backdrop.addEventListener('click', (e) => {
-      if (e.target === this.backdrop) this.close();
-    });
-
-    // Panel
-    this.panel = document.createElement('div');
-    this.panel.className = 'recording-panel';
-
-    // Header
-    const header = document.createElement('div');
-    header.className = 'recording-panel-header';
-    header.innerHTML = `
-      <div class="recording-panel-title">
+    const shell = createPanelShell({
+      prefix: 'recording',
+      titleHTML: `
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
           <path d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h12v2H2v-2z"/>
         </svg>
-        Record
-      </div>
-    `;
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'recording-panel-close';
-    closeBtn.textContent = '\u00d7';
-    closeBtn.addEventListener('click', () => this.close());
-    header.appendChild(closeBtn);
+        Record`,
+      onClose: () => this.close(),
+      // Never let a stray backdrop click silently kill an active render --
+      // cancelling requires the explicit Cancel button
+      onBackdropClick: () => { if (!this.rendering) this.close(); },
+    });
+    this.backdrop = shell.backdrop;
+    this.panel = shell.panel;
 
     // Body
     this.bodyEl = document.createElement('div');
     this.bodyEl.className = 'recording-panel-body';
 
     // --- Resolution Section ---
-    const resSection = this.createSection('Resolution');
-
-    this.presetSelect = document.createElement('select');
-    this.presetSelect.className = 'recording-input recording-select';
-    const currentOpt = document.createElement('option');
-    currentOpt.value = 'current';
-    currentOpt.textContent = `Current (${canvasWidth}\u00d7${canvasHeight})`;
-    this.presetSelect.appendChild(currentOpt);
-
-    for (const [label, w, h] of RESOLUTION_PRESETS) {
-      const opt = document.createElement('option');
-      opt.value = `${w}x${h}`;
-      opt.textContent = `${label} (${w}\u00d7${h})`;
-      this.presetSelect.appendChild(opt);
-    }
-
-    const customOpt = document.createElement('option');
-    customOpt.value = 'custom';
-    customOpt.textContent = 'Custom';
-    this.presetSelect.appendChild(customOpt);
-
-    this.presetSelect.addEventListener('change', () => this.onPresetChange());
-    resSection.appendChild(this.presetSelect);
-
-    // W x H row
-    const resRow = document.createElement('div');
-    resRow.className = 'recording-res-row';
-
-    this.widthInput = this.createNumberInput(canvasWidth, 1, 7680);
-    this.heightInput = this.createNumberInput(canvasHeight, 1, 4320);
-
-    this.widthInput.addEventListener('input', () => {
-      this.presetSelect.value = 'custom';
-      if (this.aspectLocked) {
-        const w = parseInt(this.widthInput.value) || 1;
-        this.heightInput.value = String(Math.round(w / this.aspectRatio));
-      }
-      this.updateEstimate();
+    const res = createResolutionSection({
+      prefix: 'recording',
+      canvasWidth,
+      canvasHeight,
+      onChange: () => this.updateEstimate(),
     });
-    this.heightInput.addEventListener('input', () => {
-      this.presetSelect.value = 'custom';
-      if (this.aspectLocked) {
-        const h = parseInt(this.heightInput.value) || 1;
-        this.widthInput.value = String(Math.round(h * this.aspectRatio));
-      }
-      this.updateEstimate();
-    });
-
-    const xLabel = document.createElement('span');
-    xLabel.className = 'recording-dim-separator';
-    xLabel.textContent = '\u00d7';
-
-    this.lockButton = document.createElement('button');
-    this.lockButton.className = 'recording-aspect-lock active';
-    this.lockButton.title = 'Lock aspect ratio';
-    this.lockButton.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-      <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
-    </svg>`;
-    this.lockButton.addEventListener('click', () => this.toggleAspectLock());
-
-    resRow.appendChild(this.widthInput);
-    resRow.appendChild(xLabel);
-    resRow.appendChild(this.heightInput);
-    resRow.appendChild(this.lockButton);
-    resSection.appendChild(resRow);
+    const resSection = res.section;
+    this.widthInput = res.widthInput;
+    this.heightInput = res.heightInput;
 
     // --- Timing Section ---
-    const timingSection = this.createSection('Timing');
+    const timingSection = createSection('recording', 'Timing');
 
     // Start Time
     const startRow = this.createFieldRow('Start Time');
-    this.startTimeInput = this.createNumberInput(0, 0, 3600);
+    this.startTimeInput = createNumberInput('recording', 0, 0, 3600);
     this.startTimeInput.step = '0.1';
     this.startTimeInput.addEventListener('input', () => {
       this.updateEstimate();
@@ -222,7 +147,7 @@ export class RecordingPanel {
 
     // Duration
     const durRow = this.createFieldRow('Duration');
-    this.durationInput = this.createNumberInput(10, 0.1, 3600);
+    this.durationInput = createNumberInput('recording', 10, 0.1, 3600);
     this.durationInput.step = '0.1';
     this.durationInput.addEventListener('input', () => this.updateEstimate());
     const durUnit = document.createElement('span');
@@ -234,8 +159,11 @@ export class RecordingPanel {
 
     // FPS
     const fpsRow = this.createFieldRow('FPS');
-    this.fpsInput = this.createNumberInput(60, 1, 120);
-    this.fpsInput.addEventListener('input', () => this.updateEstimate());
+    this.fpsInput = createNumberInput('recording', 60, 1, 120);
+    this.fpsInput.addEventListener('input', () => {
+      this.updateEstimate();
+      this.updateWarmupNotice(); // warmup frame count depends on FPS too
+    });
     fpsRow.appendChild(this.fpsInput);
     timingSection.appendChild(fpsRow);
 
@@ -253,7 +181,7 @@ export class RecordingPanel {
     timingSection.appendChild(this.estimateEl);
 
     // --- Format Section ---
-    const formatSection = this.createSection('Format');
+    const formatSection = createSection('recording', 'Format');
 
     const formatGroup = document.createElement('div');
     formatGroup.className = 'recording-format-group';
@@ -337,7 +265,7 @@ export class RecordingPanel {
     // --- Uniforms Section (collapsible) ---
     let uniformsSection: HTMLElement | null = null;
     if (uniforms && Object.values(uniforms).some(def => hasUIControl(def))) {
-      uniformsSection = this.createCollapsibleSection('Uniforms');
+      uniformsSection = createCollapsibleSection('recording', 'Uniforms');
       const uniformsContent = uniformsSection.querySelector('.recording-section-content')!;
 
       this.uniformControls = new UniformControls({
@@ -350,21 +278,14 @@ export class RecordingPanel {
     }
 
     // --- Progress ---
-    this.progressEl = document.createElement('div');
-    this.progressEl.className = 'recording-progress';
-    this.progressEl.innerHTML = `
-      <div class="recording-progress-bar-bg"><div class="recording-progress-bar"></div></div>
-      <div class="recording-progress-text">Preparing...</div>
-    `;
-    this.progressBar = this.progressEl.querySelector('.recording-progress-bar')!;
-    this.progressText = this.progressEl.querySelector('.recording-progress-text')!;
+    this.progress = createProgressBar('recording');
 
     const cancelRenderBtn = document.createElement('button');
     cancelRenderBtn.className = 'recording-btn recording-btn-cancel';
     cancelRenderBtn.textContent = 'Cancel Render';
     cancelRenderBtn.style.marginTop = '4px';
     cancelRenderBtn.addEventListener('click', () => this.cancelRender());
-    this.progressEl.appendChild(cancelRenderBtn);
+    this.progress.el.appendChild(cancelRenderBtn);
 
     // --- Actions ---
     this.actionsEl = document.createElement('div');
@@ -389,11 +310,9 @@ export class RecordingPanel {
     this.bodyEl.appendChild(formatSection);
     if (uniformsSection) this.bodyEl.appendChild(uniformsSection);
 
-    this.panel.appendChild(header);
     this.panel.appendChild(this.bodyEl);
     this.panel.appendChild(this.actionsEl);
-    this.panel.appendChild(this.progressEl);
-    this.backdrop.appendChild(this.panel);
+    this.panel.appendChild(this.progress.el);
 
     // Initialize
     this.updateEstimate();
@@ -405,37 +324,8 @@ export class RecordingPanel {
   close(): void {
     this.cancelRenderFn?.();
     this.cancelRenderFn = null;
-    this.uniformControls?.destroy();
+    this.uniformControls?.dispose();
     this.backdrop.remove();
-  }
-
-  // ===========================================================================
-  // Resolution
-  // ===========================================================================
-
-  private onPresetChange(): void {
-    const val = this.presetSelect.value;
-    if (val === 'current') {
-      this.widthInput.value = String(this.canvasWidth);
-      this.heightInput.value = String(this.canvasHeight);
-      this.aspectRatio = this.canvasWidth / this.canvasHeight;
-    } else if (val !== 'custom') {
-      const [w, h] = val.split('x').map(Number);
-      this.widthInput.value = String(w);
-      this.heightInput.value = String(h);
-      this.aspectRatio = w / h;
-    }
-    this.updateEstimate();
-  }
-
-  private toggleAspectLock(): void {
-    this.aspectLocked = !this.aspectLocked;
-    this.lockButton.classList.toggle('active', this.aspectLocked);
-    if (this.aspectLocked) {
-      const w = parseInt(this.widthInput.value) || 1;
-      const h = parseInt(this.heightInput.value) || 1;
-      this.aspectRatio = w / h;
-    }
   }
 
   // ===========================================================================
@@ -503,11 +393,9 @@ export class RecordingPanel {
     // Switch to progress view
     this.bodyEl.style.display = 'none';
     this.actionsEl.style.display = 'none';
-    this.progressEl.classList.add('active');
-    this.progressBar.style.width = '0%';
-    this.progressBar.style.background = '';
-    this.progressText.textContent = 'Preparing...';
+    this.progress.show('Preparing...');
 
+    this.rendering = true;
     this.cancelRenderFn = this.callbacks.startRecording({
       width,
       height,
@@ -516,64 +404,37 @@ export class RecordingPanel {
       duration,
       format,
       quality,
-      onProgress: (phase, frame, total) => {
-        const pct = (frame / total) * 100;
-        this.progressBar.style.width = `${pct}%`;
-        this.progressText.textContent = `${phase}: ${frame} / ${total} (${Math.round(pct)}%)`;
-      },
+      onProgress: (phase, frame, total) => this.progress.update(frame, total, `${phase}:`),
       onComplete: () => {
-        this.progressText.textContent = 'Done!';
-        this.progressBar.style.width = '100%';
+        // Clear cancel state BEFORE the delayed close, so close() can't
+        // invoke a stale cancel function
+        this.rendering = false;
+        this.cancelRenderFn = null;
+        this.progress.text.textContent = 'Done!';
+        this.progress.bar.style.width = '100%';
         setTimeout(() => this.close(), 1500);
       },
       onError: (error) => {
-        this.progressText.textContent = `Error: ${error.message}`;
-        this.progressBar.style.background = '#c62828';
+        this.rendering = false;
+        this.cancelRenderFn = null;
+        this.progress.fail(`Error: ${error.message}`);
       },
     });
   }
 
   private cancelRender(): void {
+    this.rendering = false;
     this.cancelRenderFn?.();
     this.cancelRenderFn = null;
     // Reset to form view
     this.bodyEl.style.display = '';
     this.actionsEl.style.display = '';
-    this.progressEl.classList.remove('active');
+    this.progress.hide();
   }
 
   // ===========================================================================
   // DOM Helpers
   // ===========================================================================
-
-  private createSection(label: string): HTMLElement {
-    const section = document.createElement('div');
-    section.className = 'recording-section';
-    const lbl = document.createElement('div');
-    lbl.className = 'recording-section-label';
-    lbl.textContent = label;
-    section.appendChild(lbl);
-    return section;
-  }
-
-  private createCollapsibleSection(label: string): HTMLElement {
-    const section = document.createElement('div');
-    section.className = 'recording-section recording-collapsible collapsed';
-
-    const header = document.createElement('div');
-    header.className = 'recording-collapsible-header';
-    header.innerHTML = `<span class="recording-collapsible-arrow">&#9654;</span> ${label}`;
-    header.addEventListener('click', () => {
-      section.classList.toggle('collapsed');
-    });
-
-    const content = document.createElement('div');
-    content.className = 'recording-section-content';
-
-    section.appendChild(header);
-    section.appendChild(content);
-    return section;
-  }
 
   private createFieldRow(label: string): HTMLElement {
     const row = document.createElement('div');
@@ -585,13 +446,4 @@ export class RecordingPanel {
     return row;
   }
 
-  private createNumberInput(defaultVal: number, min: number, max: number): HTMLInputElement {
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.className = 'recording-input';
-    input.value = String(Math.round(defaultVal));
-    input.min = String(min);
-    input.max = String(max);
-    return input;
-  }
 }

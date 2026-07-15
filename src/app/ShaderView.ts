@@ -11,7 +11,7 @@
  *  - Media initialization (audio/webcam/video)
  *  - Script info overlays
  *
- * Does NOT own: animation loop, PlaybackControls, StatsPanel, Recorder,
+ * Does NOT own: animation loop, PlaybackControls, StatsPanel,
  * UniformsPanel, script hooks, keyboard shortcuts. Those are coordinator
  * concerns managed by App.
  */
@@ -272,6 +272,26 @@ export class ShaderView {
   // ===========================================================================
   // Canvas Sizing
   // ===========================================================================
+
+  /**
+   * Suspend container-resize tracking while an offline render owns the
+   * canvas (screenshot/recording at explicit resolutions). Without this, a
+   * container resize mid-render snaps the canvas back and resets the engine.
+   */
+  suspendResizeTracking(): void {
+    this._resizeObserver.disconnect();
+    if (this._resizeDebounceTimer !== null) {
+      clearTimeout(this._resizeDebounceTimer);
+      this._resizeDebounceTimer = null;
+    }
+  }
+
+  resumeResizeTracking(): void {
+    if (this._disposed) return;
+    // Re-observing fires an initial callback, which re-syncs the canvas to
+    // the container in case it resized while tracking was off
+    this._resizeObserver.observe(this.container);
+  }
 
   private updateCanvasSize(): void {
     const rect = this.container.getBoundingClientRect();

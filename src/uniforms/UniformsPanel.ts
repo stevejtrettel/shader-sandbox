@@ -190,8 +190,8 @@ export class UniformsPanel {
   /**
    * Destroy the panel.
    */
-  destroy(): void {
-    this.controls?.destroy();
+  dispose(): void {
+    this.controls?.dispose();
     this.wrapper.remove();
   }
 }

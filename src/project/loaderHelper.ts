@@ -19,6 +19,7 @@ import type { FileLoader } from './FileLoader';
 import { loadProjectFromFiles, validateUniforms, loadUniformData } from './loadProjectCore';
 import { isMultiViewConfig } from './types';
 import { validateMultiViewConfig, DEFAULT_THEME } from './configHelpers';
+import { joinBrowserPath, pathBaseName, pluckScriptHooks } from './loaderUtils';
 
 // =============================================================================
 // Case-Insensitive File Lookup
@@ -53,13 +54,21 @@ async function loadScript(
   if (!actualPath) return null;
 
   const mod = await scriptFiles[actualPath]();
-  const hooks: DemoScriptHooks = {};
-  if (typeof mod.setup === 'function') hooks.setup = mod.setup;
-  if (typeof mod.onFrame === 'function') hooks.onFrame = mod.onFrame;
-  if (typeof mod.dispose === 'function') hooks.dispose = mod.dispose;
-  if (typeof mod.onUniformChange === 'function') hooks.onUniformChange = mod.onUniformChange;
+  return pluckScriptHooks(mod);
+}
 
-  return (hooks.setup || hooks.onFrame || hooks.dispose || hooks.onUniformChange) ? hooks : null;
+async function loadRawScriptSource(
+  demoPath: string,
+  rawScriptFiles?: Record<string, () => Promise<string>>,
+): Promise<string | null> {
+  if (!rawScriptFiles) return null;
+  const actualPath = findFileCaseInsensitive(rawScriptFiles, `${demoPath}/script.js`);
+  if (!actualPath) return null;
+  try {
+    return await rawScriptFiles[actualPath]();
+  } catch {
+    return null;
+  }
 }
 
 // =============================================================================
@@ -103,20 +112,8 @@ function createBrowserFileLoader(
       return false;
     },
 
-    joinPath(...parts: string[]): string {
-      // Simple path join for browser (forward-slash based).
-      // Normalize interior './' so config paths like "./data.json" resolve
-      // to the same keys the import.meta.glob maps use.
-      return parts
-        .map((p, i) => i === 0 ? p : p.replace(/^\/+/, ''))
-        .join('/')
-        .replace(/\/+/g, '/')
-        .replace(/\/\.\//g, '/');
-    },
-
-    baseName(path: string): string {
-      return path.split('/').pop() || path;
-    },
+    joinPath: joinBrowserPath,
+    baseName: pathBaseName,
   };
 }
 
@@ -139,6 +136,8 @@ export async function loadDemo(
   jsonFiles: Record<string, () => Promise<ProjectConfig | MultiViewConfig>>,
   imageFiles: Record<string, () => Promise<string>>,
   scriptFiles?: Record<string, () => Promise<any>>,
+  /** Raw script.js text (script glob with ?raw) — retained for HTML export. */
+  rawScriptFiles?: Record<string, () => Promise<string>>,
 ): Promise<ShaderProject | MultiViewProject> {
   const normalizedPath = demoPath.startsWith('./') ? demoPath : `./${demoPath}`;
 
@@ -155,8 +154,9 @@ export async function loadDemo(
     return loadMultiViewDemo(normalizedPath, config, glslFiles, imageFiles, scriptFiles);
   }
 
-  // Pre-load script hooks
+  // Pre-load script hooks (and raw source, for HTML export)
   const script = await loadScript(normalizedPath, scriptFiles);
+  const scriptSource = await loadRawScriptSource(normalizedPath, rawScriptFiles);
 
   // Create the FileLoader adapter
   const loader = createBrowserFileLoader(glslFiles, imageFiles);
@@ -170,6 +170,7 @@ export async function loadDemo(
   const project = await loadProjectFromFiles(loader, normalizedPath, {
     config,
     script,
+    scriptSource,
     textureUrlResolver,
   });
 

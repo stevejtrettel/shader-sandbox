@@ -203,7 +203,7 @@ export class MultiViewControls {
   }
 
   dispose(): void {
-    this.controls?.destroy();
+    this.controls?.dispose();
     this.wrapper.removeChild(this.controlsWrapper);
   }
 }

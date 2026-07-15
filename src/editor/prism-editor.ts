@@ -14,7 +14,7 @@ import './prism-editor.css';
 export interface EditorInstance {
   getSource: () => string;
   setSource: (source: string) => void;
-  destroy: () => void;
+  dispose: () => void;
 }
 
 /**
@@ -122,7 +122,7 @@ export function createEditor(
       textarea.value = source;
       update();
     },
-    destroy: () => {
+    dispose: () => {
       textarea.removeEventListener('input', update);
       textarea.removeEventListener('scroll', syncScroll);
       textarea.removeEventListener('keydown', handleKeydown);

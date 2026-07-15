@@ -7,6 +7,7 @@
 
 import type { LineMapping } from '../engine/ShaderEngine';
 import type { ShaderProject } from '../project/types';
+import { escapeHTML } from './dom';
 
 /** Error info as provided by the engine. */
 export interface CompilationError {
@@ -200,11 +201,3 @@ function buildCodeContext(source: string, errorLine: number): string | null {
   }).join('');
 }
 
-/**
- * Escape HTML to prevent XSS.
- */
-function escapeHTML(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}

@@ -9,6 +9,8 @@
  * Shows a persistent warning when onFrame() is disabled after too many errors.
  */
 
+import { escapeHTML } from './dom';
+
 export class RuntimeErrorOverlay {
   private container: HTMLElement;
   private overlay: HTMLElement | null = null;
@@ -143,8 +145,3 @@ export class RuntimeErrorOverlay {
   }
 }
 
-function escapeHTML(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}

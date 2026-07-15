@@ -54,13 +54,20 @@ export async function loadDemoProject() {
   // Script files (setup.js / script.js hooks for JS-driven computation)
   const scriptFilesRaw = import.meta.glob<any>('/demos/${demo}/**/script.js');
 
+  // Raw script text (retained for HTML export's embedded module)
+  const rawScriptRaw = import.meta.glob<string>('/demos/${demo}/**/script.js', {
+    query: '?raw',
+    import: 'default',
+  });
+
   // Transform keys to ./ format that loadDemo expects
   const glslFiles = transformKeys(glslFilesRaw);
   const jsonFiles = transformKeys(jsonFilesRaw);
   const imageFiles = transformKeys(imageFilesRaw);
   const scriptFiles = transformKeys(scriptFilesRaw);
+  const rawScriptFiles = transformKeys(rawScriptRaw);
 
-  return loadDemo(DEMO_NAME, glslFiles, jsonFiles, imageFiles, scriptFiles);
+  return loadDemo(DEMO_NAME, glslFiles, jsonFiles, imageFiles, scriptFiles, rawScriptFiles);
 }
 `;
   fs.writeFileSync(LOADER_PATH, loaderContent);

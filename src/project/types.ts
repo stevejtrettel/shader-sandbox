@@ -2,7 +2,6 @@
  * Project Layer - Type Definitions for Shadertoy Projects
  *
  * Pure TypeScript interfaces matching Shadertoy's mental model.
- * Based on docs/project-spec.md
  */
 
 // =============================================================================
@@ -685,6 +684,13 @@ export interface ShaderProject {
    * Provides setup() and onFrame() callbacks for JS-driven computation.
    */
   script: DemoScriptHooks | null;
+
+  /**
+   * Raw script.js module source, when the loader can retain it. HTML export
+   * embeds this as a real ES module so exported scripts keep working module
+   * semantics (module-level state, helper functions, etc.).
+   */
+  scriptSource?: string | null;
 }
 
 // =============================================================================

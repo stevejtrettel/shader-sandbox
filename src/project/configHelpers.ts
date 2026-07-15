@@ -62,8 +62,11 @@ export function parseChannelValue(value: ChannelValue): ChannelJSONObject | null
   return value;
 }
 
-/** The ordered list of pass names for iteration. */
+/** The ordered list of pass names for config iteration. */
 export const PASS_ORDER = ['Image', 'BufferA', 'BufferB', 'BufferC', 'BufferD'] as const;
+
+/** The order passes EXECUTE in each frame (buffers first, Image last). */
+export const PASS_EXECUTION_ORDER: PassName[] = ['BufferA', 'BufferB', 'BufferC', 'BufferD', 'Image'];
 
 /** The four buffer pass names (excludes Image). */
 export const BUFFER_PASS_NAMES: PassName[] = ['BufferA', 'BufferB', 'BufferC', 'BufferD'];

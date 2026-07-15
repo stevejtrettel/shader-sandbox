@@ -140,6 +140,14 @@
   background: var(--code-bg);
 }
 
+/* Stacked slots inside the content area: external view (canvas) and the
+   editor host. Toggled via visibility so canvas sizing never collapses. */
+.editor-view-slot,
+.editor-host-slot {
+  position: absolute;
+  inset: 0;
+}
+
 .editor-prism-container {
   height: 100%;
   width: 100%;

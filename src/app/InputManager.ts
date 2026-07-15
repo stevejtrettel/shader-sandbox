@@ -137,13 +137,16 @@ export class InputManager {
     this.onFirstGesture?.();
   }
 
+  /** Convert client coords to canvas pixel coords (Y flipped for GL). */
+  private toCanvasCoords(clientX: number, clientY: number): [number, number] {
+    const rect = this.canvas.getBoundingClientRect();
+    const x = (clientX - rect.left) * this.pixelRatio;
+    const y = (rect.height - (clientY - rect.top)) * this.pixelRatio;
+    return [x, y];
+  }
+
   private setupMouseTracking(): void {
-    const getCoords = (e: MouseEvent): [number, number] => {
-      const rect = this.canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * this.pixelRatio;
-      const y = (rect.height - (e.clientY - rect.top)) * this.pixelRatio; // Flip Y
-      return [x, y];
-    };
+    const getCoords = (e: MouseEvent) => this.toCanvasCoords(e.clientX, e.clientY);
 
     const onMouseDown = (e: MouseEvent) => {
       const [x, y] = getCoords(e);
@@ -189,12 +192,7 @@ export class InputManager {
     // while still capturing horizontal drags and pinch gestures.
     this.canvas.style.touchAction = 'pan-y';
 
-    const getCanvasCoords = (clientX: number, clientY: number): [number, number] => {
-      const rect = this.canvas.getBoundingClientRect();
-      const x = (clientX - rect.left) * this.pixelRatio;
-      const y = (rect.height - (clientY - rect.top)) * this.pixelRatio; // Flip Y
-      return [x, y];
-    };
+    const getCanvasCoords = (clientX: number, clientY: number) => this.toCanvasCoords(clientX, clientY);
 
     const handlePointerDown = (e: PointerEvent) => {
       // Only track touch and pen (mouse is handled separately)

@@ -32,6 +32,7 @@ import {
   BUFFER_PASS_NAMES,
   DEFAULT_LAYOUT,
   DEFAULT_THEME,
+  PASS_EXECUTION_ORDER,
 } from './configHelpers';
 
 // =============================================================================
@@ -59,6 +60,7 @@ export interface ShaderProjectInput {
   uniforms?: UniformDefinitions;
   uniformData?: Record<string, unknown>;
   script?: DemoScriptHooks | null;
+  scriptSource?: string | null;
 }
 
 /**
@@ -89,6 +91,7 @@ export function buildShaderProject(input: ShaderProjectInput): ShaderProject {
     uniforms: input.uniforms ?? {},
     uniformData: input.uniformData ?? {},
     script: input.script ?? null,
+    scriptSource: input.scriptSource ?? null,
   };
 }
 
@@ -354,6 +357,7 @@ export async function loadProjectFromFiles(
     config?: any;
     /** Pre-loaded script hooks (browser loader pre-imports script.js). */
     script?: DemoScriptHooks | null;
+    scriptSource?: string | null;
     /** Pre-resolved texture path → URL map (browser loader resolves via Vite). */
     textureUrlResolver?: (path: string) => Promise<string>;
   },
@@ -400,7 +404,7 @@ export async function loadProjectFromFiles(
 async function loadSinglePassProject(
   loader: FileLoader,
   root: string,
-  opts?: { script?: DemoScriptHooks | null },
+  opts?: { script?: DemoScriptHooks | null; scriptSource?: string | null },
 ): Promise<ShaderProject> {
   const imagePath = loader.joinPath(root, 'image.glsl');
 
@@ -419,6 +423,7 @@ async function loadSinglePassProject(
           Image: { name: 'Image', glslSource: bareSource, channels: noChannels },
         },
         script: opts?.script,
+        scriptSource: opts?.scriptSource,
       });
     }
     throw new Error(`Single-pass project at '${root}' requires 'image.glsl' (or a bare '${root}.glsl' file).`);
@@ -454,6 +459,7 @@ async function loadSinglePassProject(
       Image: { name: 'Image', glslSource: imageSource, channels: noChannels },
     },
     script: opts?.script,
+    scriptSource: opts?.scriptSource,
   });
 }
 
@@ -529,8 +535,7 @@ async function loadChannelPasses(
 
   // Validate `current: true` ordering assertions: a this-frame read only
   // exists when the source pass runs strictly before the consuming pass.
-  const EXEC_ORDER: PassName[] = ['BufferA', 'BufferB', 'BufferC', 'BufferD', 'Image'];
-  for (const passName of EXEC_ORDER) {
+  for (const passName of PASS_EXECUTION_ORDER) {
     const pass = passes[passName];
     if (!pass) continue;
     pass.channels.forEach((ch, i) => {
@@ -541,7 +546,7 @@ async function loadChannelPasses(
           `a pass cannot read its own current-frame output. Remove 'current' to read the previous frame.`
         );
       }
-      if (EXEC_ORDER.indexOf(ch.buffer) >= EXEC_ORDER.indexOf(passName)) {
+      if (PASS_EXECUTION_ORDER.indexOf(ch.buffer) >= PASS_EXECUTION_ORDER.indexOf(passName)) {
         throw new Error(
           `Pass '${passName}' iChannel${i} at '${root}': 'current: true' requires '${ch.buffer}' to run before ` +
           `'${passName}' (execution order: BufferA → BufferB → BufferC → BufferD → Image).`
@@ -559,6 +564,7 @@ async function loadShadertoyProject(
   config: ShadertoyConfig,
   opts?: {
     script?: DemoScriptHooks | null;
+    scriptSource?: string | null;
     textureUrlResolver?: (path: string) => Promise<string>;
   },
 ): Promise<ShaderProject> {
@@ -607,6 +613,7 @@ async function loadShadertoyProject(
     uniforms: config.uniforms,
     uniformData,
     script: opts?.script,
+    scriptSource: opts?.scriptSource,
   });
 }
 
@@ -620,6 +627,7 @@ async function loadStandardProject(
   config: StandardConfig,
   opts?: {
     script?: DemoScriptHooks | null;
+    scriptSource?: string | null;
     textureUrlResolver?: (path: string) => Promise<string>;
   },
 ): Promise<ShaderProject> {
@@ -688,6 +696,7 @@ async function loadStandardProject(
     uniforms: config.uniforms,
     uniformData,
     script: opts?.script,
+    scriptSource: opts?.scriptSource,
   });
 }
 
@@ -704,6 +713,7 @@ async function loadStandardWithNamedBuffers(
   commonSource: string | null,
   opts?: {
     script?: DemoScriptHooks | null;
+    scriptSource?: string | null;
     textureUrlResolver?: (path: string) => Promise<string>;
   },
   uniformData?: Record<string, unknown>,
@@ -811,5 +821,6 @@ async function loadStandardWithNamedBuffers(
     uniforms: config.uniforms,
     uniformData,
     script: opts?.script,
+    scriptSource: opts?.scriptSource,
   });
 }
