@@ -36,8 +36,11 @@ try {
       skipLibCheck: true,
       resolveJsonModule: true
     },
+    // Exclude dev-server-only entry points. main.ts is the only importer of
+    // generatedLoader.ts (machine-written, gitignored), so excluding it keeps
+    // nondeterministic demo-dependent code out of the published lib.
     include: ["src/**/*"],
-    exclude: ["src/project/generatedLoader.ts"]
+    exclude: ["src/main.ts", "src/project/generatedLoader.ts"]
   };
 
   const tsconfigPath = path.join(ROOT, 'tsconfig.lib.json');

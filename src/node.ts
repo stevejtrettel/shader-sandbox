@@ -64,6 +64,12 @@ export class MultiViewControls {
   }
 }
 
+export class GridLayout {
+  constructor() {
+    throw new Error(BROWSER_ONLY_ERROR);
+  }
+}
+
 export function createLayout(): never {
   throw new Error(BROWSER_ONLY_ERROR);
 }
@@ -80,14 +86,12 @@ export function loadDemo(): never {
   throw new Error(BROWSER_ONLY_ERROR);
 }
 
-export function isArrayUniform(def: unknown): boolean {
-  return !!def && typeof def === 'object' && 'count' in (def as Record<string, unknown>) && !('struct' in (def as Record<string, unknown>));
-}
-
-export function isMultiViewProject(project: unknown): boolean {
-  return !!project && typeof project === 'object' && Array.isArray((project as { views?: unknown }).views);
-}
-
-export function isMultiViewConfig(config: unknown): boolean {
-  return !!config && typeof config === 'object' && Array.isArray((config as { views?: unknown }).views);
-}
+// Type guards are pure functions with no DOM dependency — re-export the real
+// implementations so the Node surface can't drift from the browser one.
+export {
+  isArrayUniform,
+  isStructArrayUniform,
+  isAnyUBOUniform,
+  isMultiViewProject,
+  isMultiViewConfig,
+} from './project/types';

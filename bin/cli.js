@@ -848,18 +848,6 @@ ${cards.map(c => `    <a class="card" href="${escapeHtml(c.name)}/index.html">
     break;
   }
 
-  case 'render': {
-    // Headless rendering is not yet implemented.
-    // Use the in-browser recording panel (controls: true → record button) instead.
-    console.error('The render command is not yet available.');
-    console.error('');
-    console.error('For offline recording, use the in-browser recording panel:');
-    console.error('  1. Run your shader with: npx shader dev <name>');
-    console.error('  2. Enable controls ("controls": true in config.json)');
-    console.error('  3. Click the record button for MP4, WebM, or PNG frame export');
-    process.exit(1);
-  }
-
   case 'build-all': {
     const cwd = process.cwd();
     const shaders = getShaderList(cwd);

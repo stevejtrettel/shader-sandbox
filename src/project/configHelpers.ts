@@ -1,7 +1,7 @@
 /**
  * Shared helpers for config loading.
- * Used by both the Node/CLI loader (loadProject.ts) and
- * the browser/Vite loader (loaderHelper.ts).
+ * Used by the browser/Vite loader (loaderHelper.ts) and the
+ * fetch-based runtime loader (runtime.ts).
  */
 
 import type { PassName, ChannelValue, ChannelJSONObject, MultiViewConfig } from './types';

@@ -1,8 +1,7 @@
 /**
  * mount() — Core programmatic API for mounting a shader project into a DOM element.
  *
- * Consolidates all handler wiring (recompile + uniform callbacks)
- * previously split between main.ts and embed.ts.
+ * Consolidates all handler wiring (recompile + uniform callbacks).
  *
  * Does NOT import generatedLoader — the project is always passed in by the caller.
  * Does NOT import base.css — callers handle their own global resets.

@@ -111,10 +111,7 @@ export class ShaderView {
       project: opts.project,
       viewNames: opts.viewNames,
       onAssetError: (err) => {
-        const title = err.type === 'texture'
-          ? `Texture '${err.name}' failed to load`
-          : `Framebuffer '${err.name}' error`;
-        this.runtimeErrorOverlay.showWarning(title, err.detail);
+        this.runtimeErrorOverlay.showWarning(`Texture '${err.name}' failed to load`, err.detail);
       },
     });
 
@@ -312,10 +309,7 @@ export class ShaderView {
         project: this._project,
         viewNames: this._viewNames,
         onAssetError: (err) => {
-          const title = err.type === 'texture'
-            ? `Texture '${err.name}' failed to load`
-            : `Framebuffer '${err.name}' error`;
-          this.runtimeErrorOverlay.showWarning(title, err.detail);
+          this.runtimeErrorOverlay.showWarning(`Texture '${err.name}' failed to load`, err.detail);
         },
       });
 

@@ -7,7 +7,10 @@
   "homepage": "https://github.com/stevejtrettel/shader-sandbox",
   "repository": {
     "type": "git",
-    "url": "https://github.com/stevejtrettel/shader-sandbox.git"
+    "url": "git+https://github.com/stevejtrettel/shader-sandbox.git"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "keywords": [
     "shader",
@@ -22,14 +25,14 @@
   "types": "./dist-lib/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist-lib/index.d.ts",
       "node": "./dist-lib/node.js",
       "import": "./dist-lib/index.js",
-      "types": "./dist-lib/index.d.ts",
       "default": "./dist-lib/index.js"
     },
     "./node": {
-      "import": "./dist-lib/node.js",
       "types": "./dist-lib/node.d.ts",
+      "import": "./dist-lib/node.js",
       "default": "./dist-lib/node.js"
     },
     "./runtime": {
@@ -38,6 +41,7 @@
       "default": "./dist-lib/runtime.js"
     },
     "./runtime/standalone": {
+      "types": "./dist-lib/runtime.d.ts",
       "import": "./dist-runtime/shader-sandbox.js",
       "default": "./dist-runtime/shader-sandbox.js"
     }
@@ -53,26 +57,28 @@
   ],
   "scripts": {
     "new": "node scripts/new-demo.cjs",
+    "predev": "node scripts/generate-loader.cjs",
     "dev": "vite",
     "dev:demo": "node scripts/dev-demo.cjs",
+    "prebuild": "node scripts/generate-loader.cjs",
     "build": "tsc && vite build",
     "build:lib": "node scripts/build-lib.cjs",
     "build:runtime": "vite build --config vite.config.runtime.ts",
     "prepublishOnly": "npm run build:lib && npm run build:runtime",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "mediabunny": "^1.40.1",
-    "prismjs": "^1.30.0",
-    "vite": "^5.0.0",
-    "vite-plugin-css-injected-by-js": "^3.5.2"
-  },
-  "optionalDependencies": {
-    "puppeteer-core": "^24.34.0"
+    "prismjs": "^1.30.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/prismjs": "^1.26.5",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0",
+    "vite-plugin-css-injected-by-js": "^3.5.2",
+    "vitest": "^3.0.0"
   }
 }

@@ -80,10 +80,9 @@ export class StatsPanel {
       this.frameCount = 0;
       this.lastFpsUpdate = currentTimeSec;
 
-      // Update time/resolution stats once per second
+      // Update time stats once per second
       if (this.isStatsOpen) {
         this.updateTimeDisplay(elapsedTime);
-        this.updateResolutionDisplay();
       }
     }
   }
@@ -99,7 +98,6 @@ export class StatsPanel {
     if (this.isStatsOpen) {
       this.updateTimeDisplay(0);
       this.updateFrameDisplay();
-      this.updateResolutionDisplay();
     }
   }
 
@@ -126,7 +124,6 @@ export class StatsPanel {
     // Update stats immediately when opening
     if (this.isStatsOpen) {
       this.updateFrameDisplay();
-      this.updateResolutionDisplay();
     }
   }
 
@@ -156,13 +153,5 @@ export class StatsPanel {
     }
 
     this.timeDisplay.querySelector('.stat-value')!.textContent = timeStr;
-  }
-
-  private updateResolutionDisplay(): void {
-    const w = this.resolutionDisplay.querySelector('.stat-value')!.textContent;
-    // Already set via updateResolution(), just needed for toggle open
-    if (!w) {
-      this.resolutionDisplay.querySelector('.stat-value')!.textContent = '0×0';
-    }
   }
 }

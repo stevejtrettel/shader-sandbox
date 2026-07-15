@@ -111,7 +111,7 @@ export class ShaderEngine {
   private _viewNames: string[] = [];
 
   // Asset error callback
-  private _onAssetError?: (error: { type: 'texture' | 'framebuffer'; name: string; detail: string }) => void;
+  private _onAssetError?: (error: { type: 'texture'; name: string; detail: string }) => void;
 
   constructor(opts: EngineOptions) {
     this.gl = opts.gl;
@@ -137,8 +137,6 @@ export class ShaderEngine {
     };
 
     // 4. Initialize external textures (from project.textures)
-    //    NOTE: This requires actual image data; for now just stub the array.
-    //    Real implementation would load images here.
     this.initProjectTextures();
 
     // 5. Initialize media manager (audio/video/webcam textures)
@@ -294,14 +292,6 @@ export class ShaderEngine {
       paddedData: new Float32Array(u.paddedData),
       struct: u.kind === 'struct' ? (u.def.struct as Record<string, string>) : undefined,
     }));
-  }
-
-  /**
-   * Get the framebuffer for the Image pass (for presenting to screen).
-   */
-  getImageFramebuffer(): WebGLFramebuffer | null {
-    const imagePass = this._passes.find((p) => p.name === 'Image');
-    return imagePass?.framebuffer ?? null;
   }
 
   /**
@@ -809,9 +799,8 @@ export class ShaderEngine {
   /**
    * Initialize external textures based on project.textures.
    *
-   * NOTE: This function as written assumes that actual image loading
-   * is handled elsewhere. For now we just construct an empty array.
-   * In a real implementation, you would load images here.
+   * Creates a 1x1 placeholder immediately for each texture, then loads the
+   * real image asynchronously and uploads it when ready.
    */
   private initProjectTextures(): void {
     const gl = this.gl;
@@ -978,15 +967,6 @@ export class ShaderEngine {
       namedSamplers,
       viewNames: this._viewNames.length > 1 ? this._viewNames : undefined,
     });
-  }
-
-  /**
-   * Set view names for multi-view projects.
-   * This enables cross-view uniforms (iMouse_viewName, iResolution_viewName, etc.)
-   * Must be called before shader compilation.
-   */
-  setViewNames(names: string[]): void {
-    this._viewNames = names;
   }
 
   // ===========================================================================

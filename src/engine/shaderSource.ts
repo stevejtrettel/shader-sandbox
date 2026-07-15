@@ -248,8 +248,7 @@ uniform vec2  iPinchCenter;         // Center point of pinch gesture
   if (scalarUniforms.length > 0) {
     parts.push('// Custom uniforms');
     for (const [name, def] of scalarUniforms) {
-      const glslType = def.type === 'bool' ? 'bool' : def.type;
-      parts.push(`uniform ${glslType} ${name};`);
+      parts.push(`uniform ${def.type} ${name};`);
     }
     parts.push('');
   }

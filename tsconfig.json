@@ -28,6 +28,5 @@
     /* Vite types */
     "types": ["vite/client"]
   },
-  "include": ["src"],
-  "exclude": ["src/project/loadProject.ts"]
+  "include": ["src", "tests"]
 }

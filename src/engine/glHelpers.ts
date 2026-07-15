@@ -362,51 +362,6 @@ export function updateKeyboardTexture(
   gl.bindTexture(gl.TEXTURE_2D, null);
 }
 
-/**
- * Create a 2D texture from an HTMLImageElement (or ImageBitmap).
- * This is used for project textures (dog.png, noise.png, etc.)
- *
- * NOTE: actual image loading is done by the App; engine just gets an
- * already-loaded image object.
- */
-export function createTextureFromImage(
-  gl: WebGL2RenderingContext,
-  image: HTMLImageElement | ImageBitmap,
-  filter: 'nearest' | 'linear',
-  wrap: 'clamp' | 'repeat'
-): WebGLTexture {
-  const tex = gl.createTexture();
-  if (!tex) {
-    throw new Error('Failed to create texture');
-  }
-
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-
-  // Upload image data
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    image
-  );
-
-  // Set filtering
-  const glFilter = filter === 'nearest' ? gl.NEAREST : gl.LINEAR;
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glFilter);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, glFilter);
-
-  // Set wrap mode
-  const glWrap = wrap === 'clamp' ? gl.CLAMP_TO_EDGE : gl.REPEAT;
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, glWrap);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, glWrap);
-
-  gl.bindTexture(gl.TEXTURE_2D, null);
-
-  return tex;
-}
-
 // =============================================================================
 // Audio Texture
 // =============================================================================

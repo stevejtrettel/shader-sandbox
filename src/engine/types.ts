@@ -29,7 +29,7 @@ export interface EngineOptions {
   /** View names for multi-view projects (enables cross-view uniforms) */
   viewNames?: string[];
   /** Callback fired on asset load errors (texture, framebuffer) */
-  onAssetError?: (error: { type: 'texture' | 'framebuffer'; name: string; detail: string }) => void;
+  onAssetError?: (error: { type: 'texture'; name: string; detail: string }) => void;
 }
 
 // =============================================================================
@@ -126,8 +126,8 @@ export interface RuntimeTexture2D {
 }
 
 /**
- * Keyboard texture representation.
- * For v1, you can leave this unimplemented or just stub it out.
+ * Keyboard texture representation (256x3, Shadertoy format).
+ * Row 0: held, row 1: pressed-this-frame, row 2: toggle.
  */
 export interface RuntimeKeyboardTexture {
   texture: WebGLTexture;
