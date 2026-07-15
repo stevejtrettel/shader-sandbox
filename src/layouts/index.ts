@@ -60,6 +60,10 @@ export function createLayout(
       return new SplitLayout(options);
     case 'tabbed':
       return new TabbedLayout(options);
+    default:
+      // Mount options and custom-element attributes are not validated
+      // upstream, so fail with a comprehensible error here.
+      throw new Error(`Unknown layout '${mode}'. Expected one of: fullscreen, default, split, tabbed`);
   }
 }
 

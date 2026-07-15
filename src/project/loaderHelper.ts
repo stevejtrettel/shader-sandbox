@@ -16,9 +16,9 @@ import type {
   Channels,
 } from './types';
 import type { FileLoader } from './FileLoader';
-import { loadProjectFromFiles } from './loadProjectCore';
+import { loadProjectFromFiles, validateUniforms, loadUniformData } from './loadProjectCore';
 import { isMultiViewConfig } from './types';
-import { validateMultiViewConfig } from './configHelpers';
+import { validateMultiViewConfig, DEFAULT_THEME } from './configHelpers';
 
 // =============================================================================
 // Case-Insensitive File Lookup
@@ -104,11 +104,14 @@ function createBrowserFileLoader(
     },
 
     joinPath(...parts: string[]): string {
-      // Simple path join for browser (forward-slash based)
+      // Simple path join for browser (forward-slash based).
+      // Normalize interior './' so config paths like "./data.json" resolve
+      // to the same keys the import.meta.glob maps use.
       return parts
         .map((p, i) => i === 0 ? p : p.replace(/^\/+/, ''))
         .join('/')
-        .replace(/\/+/g, '/');
+        .replace(/\/+/g, '/')
+        .replace(/\/\.\//g, '/');
     },
 
     baseName(path: string): string {
@@ -192,6 +195,14 @@ async function loadMultiViewDemo(
   const loader = createBrowserFileLoader(glslFiles, imageFiles);
   const script = await loadScript(demoPath, scriptFiles);
 
+  // Multi-view uniforms get the same validation and static-data loading
+  // as single-view projects
+  let uniformData: Record<string, unknown> = {};
+  if (config.uniforms) {
+    validateUniforms(config.uniforms, demoPath);
+    uniformData = await loadUniformData(loader, demoPath, config.uniforms);
+  }
+
   // Load common.glsl if present
   let commonSource: string | null = null;
   const commonPath = `${demoPath}/common.glsl`;
@@ -244,7 +255,7 @@ async function loadMultiViewDemo(
       author: config.author ?? null,
       description: config.description ?? null,
     },
-    theme: config.theme ?? 'light',
+    theme: config.theme ?? DEFAULT_THEME,
     controls: config.controls,
     stats: config.stats,
     playback: config.playback,
@@ -254,7 +265,7 @@ async function loadMultiViewDemo(
     pixelRatio: config.pixelRatio ?? null,
     commonSource,
     uniforms: config.uniforms ?? {},
-    uniformData: {},
+    uniformData,
     textures: [],
     script,
     views,

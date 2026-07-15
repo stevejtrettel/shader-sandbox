@@ -58,6 +58,9 @@ export class App {
 
   // Playback controls
   private playbackControls: PlaybackControls | null = null;
+
+  /** Notified whenever pause state changes (multi-view panel syncs its icon here). */
+  onPauseChanged?: (paused: boolean) => void;
   private isPaused: boolean = false;
   private _pauseAfterFirstFrame: boolean = false;
 
@@ -165,10 +168,22 @@ export class App {
 
     // Wire resize and context-restored callbacks (after statsPanel is created)
     if (this.isMultiView) {
-      // Only primary view updates stats resolution
-      this.primaryView.onResize = (w, h) => {
-        this.statsPanel?.updateResolution(w, h);
-      };
+      // Every view's ResizeObserver resets its engine (clearing buffers), so
+      // re-step ALL views on any resize while paused — otherwise the resized
+      // canvases stay black until resume.
+      for (const view of this.views.values()) {
+        view.onResize = (w, h) => {
+          if (view === this.primaryView) {
+            this.statsPanel?.updateResolution(w, h);
+          }
+          if (this.isPaused) {
+            const crossViewStates = this.collectCrossViewStates();
+            for (const v of this.views.values()) {
+              v.step(0, crossViewStates);
+            }
+          }
+        };
+      }
 
       // Wire context restored for all views
       for (const view of this.views.values()) {
@@ -223,7 +238,7 @@ export class App {
     // Handle startPaused option — defer pause until after the first frame renders
     if (this.project.startPaused) {
       this._pauseAfterFirstFrame = true;
-      this.playbackControls?.setPaused(true);
+      this.notifyPauseState(true);
     }
 
     // Set up intersection observer for auto-pause when off-screen
@@ -261,11 +276,11 @@ export class App {
       });
     }
 
-    // Set up keyboard shortcuts (space/R only meaningful when playback bar is shown)
+    // Set up keyboard shortcuts. Space/S/R work on any focused shader
+    // regardless of whether the on-screen playback bar is shown — the
+    // README documents them unconditionally.
     this.setupGlobalShortcuts();
-    if (playback) {
-      this.setupKeyboardShortcuts();
-    }
+    this.setupKeyboardShortcuts();
   }
 
   // ===========================================================================
@@ -469,6 +484,19 @@ export class App {
     };
   }
 
+  /** Snapshot every view's input/resolution state for cross-view uniforms. */
+  private collectCrossViewStates(): Map<string, CrossViewState> {
+    const crossViewStates = new Map<string, CrossViewState>();
+    for (const [name, view] of this.views) {
+      crossViewStates.set(name, {
+        mouse: view.getMouseState(),
+        resolution: view.getResolution(),
+        mousePressed: view.getMousePressed(),
+      });
+    }
+    return crossViewStates;
+  }
+
   setOverlay(position: OverlayPosition, text: string | null): void {
     this.primaryView.setOverlay(position, text);
   }
@@ -499,17 +527,8 @@ export class App {
     this.runScriptOnFrame(elapsedTime, this.statsPanel?.totalFrameCount ?? 0);
 
     if (this.isMultiView) {
-      // Collect cross-view states from all views
-      const crossViewStates = new Map<string, CrossViewState>();
-      for (const [name, view] of this.views) {
-        crossViewStates.set(name, {
-          mouse: view.getMouseState(),
-          resolution: view.getResolution(),
-          mousePressed: view.getMousePressed(),
-        });
-      }
-
       // Step all views with shared time and cross-view state
+      const crossViewStates = this.collectCrossViewStates();
       for (const view of this.views.values()) {
         view.step(elapsedTime, crossViewStates);
       }
@@ -521,7 +540,7 @@ export class App {
     if (this._pauseAfterFirstFrame) {
       this._pauseAfterFirstFrame = false;
       this.isPaused = true;
-      this.playbackControls?.setPaused(true);
+      this.notifyPauseState(true);
     }
   };
 
@@ -538,7 +557,12 @@ export class App {
       this.startTime = performance.now() / 1000 - this.pausedElapsedTime;
     }
     this.isPaused = !this.isPaused;
-    this.playbackControls?.setPaused(this.isPaused);
+    this.notifyPauseState(this.isPaused);
+  }
+
+  private notifyPauseState(paused: boolean): void {
+    this.playbackControls?.setPaused(paused);
+    this.onPauseChanged?.(paused);
   }
 
   getPaused(): boolean {
@@ -1009,6 +1033,7 @@ export class App {
   // ===========================================================================
 
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     this.stop();
     // Call script dispose before tearing down GL resources

@@ -145,8 +145,8 @@
   margin-bottom: 4px;
 }
 
-/* Playback controls */
-.playback-controls {
+/* Playback controls (scoped name — `.playback-controls` is taken by app.css) */
+.mv-playback-section {
   flex-direction: row;
   gap: 8px;
   padding: 12px;

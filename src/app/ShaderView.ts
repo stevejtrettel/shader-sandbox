@@ -51,6 +51,7 @@ export class ShaderView {
   // Context loss
   private _contextLostOverlay: HTMLElement | null = null;
   private _isContextLost: boolean = false;
+  private _disposed: boolean = false;
 
   // Media
   private _mediaBanner: HTMLElement | null = null;
@@ -241,6 +242,8 @@ export class ShaderView {
   // ===========================================================================
 
   dispose(): void {
+    if (this._disposed) return;
+    this._disposed = true;
     this.input.dispose();
     this._resizeObserver.disconnect();
     if (this._resizeDebounceTimer !== null) {
@@ -255,11 +258,15 @@ export class ShaderView {
       overlay.remove();
     }
     this._overlays.clear();
+    // Remove context-loss listeners BEFORE forcing loseContext(), or the
+    // queued webglcontextlost event re-appends the overlay after disposal
+    this.canvas.removeEventListener('webglcontextlost', this._contextLostHandler);
+    this.canvas.removeEventListener('webglcontextrestored', this._contextRestoredHandler);
     // Explicitly release the WebGL context to free GPU resources
     // (prevents context leaks when components are dynamically mounted/unmounted)
     const loseCtx = this.gl.getExtension('WEBGL_lose_context');
     if (loseCtx) loseCtx.loseContext();
-    this.container.removeChild(this.canvas);
+    this.canvas.remove();
   }
 
   // ===========================================================================
@@ -281,15 +288,20 @@ export class ShaderView {
   // Context Loss Handling
   // ===========================================================================
 
-  private setupContextLossHandling(): void {
-    this.canvas.addEventListener('webglcontextlost', (e: Event) => {
-      e.preventDefault();
-      this.handleContextLost();
-    });
+  private _contextLostHandler = (e: Event): void => {
+    e.preventDefault();
+    if (this._disposed) return;
+    this.handleContextLost();
+  };
 
-    this.canvas.addEventListener('webglcontextrestored', () => {
-      this.handleContextRestored();
-    });
+  private _contextRestoredHandler = (): void => {
+    if (this._disposed) return;
+    this.handleContextRestored();
+  };
+
+  private setupContextLossHandling(): void {
+    this.canvas.addEventListener('webglcontextlost', this._contextLostHandler);
+    this.canvas.addEventListener('webglcontextrestored', this._contextRestoredHandler);
   }
 
   private handleContextLost(): void {

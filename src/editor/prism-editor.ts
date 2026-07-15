@@ -7,7 +7,7 @@
 
 import * as Prism from 'prismjs';
 import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-cpp';
+import 'prismjs/components/prism-glsl';
 
 import './prism-editor.css';
 
@@ -51,7 +51,7 @@ export function createEditor(
   const highlight = document.createElement('div');
   highlight.className = 'prism-editor-highlight';
   const code = document.createElement('code');
-  code.className = 'language-cpp';
+  code.className = 'language-glsl';
   highlight.appendChild(code);
 
   // Assemble
@@ -91,14 +91,20 @@ export function createEditor(
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Tab') {
       e.preventDefault();
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const value = textarea.value;
 
-      // Insert 2 spaces
-      textarea.value = value.substring(0, start) + '  ' + value.substring(end);
-      textarea.selectionStart = textarea.selectionEnd = start + 2;
-      update();
+      // execCommand keeps the native undo stack intact (assigning
+      // textarea.value directly would wipe it, breaking Ctrl+Z).
+      // Deprecated but universally supported; fall back if it ever fails.
+      const inserted = document.execCommand('insertText', false, '  ');
+      if (!inserted) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const value = textarea.value;
+        textarea.value = value.substring(0, start) + '  ' + value.substring(end);
+        textarea.selectionStart = textarea.selectionEnd = start + 2;
+        update();
+      }
+      // execCommand fires an 'input' event, so update() runs via that listener
     }
   }
 

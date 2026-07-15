@@ -47,7 +47,15 @@ export function createProgramFromSources(
   fragmentSource: string
 ): WebGLProgram {
   const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexSource);
-  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+  let fragmentShader: WebGLShader;
+  try {
+    fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+  } catch (err) {
+    // Don't leak the vertex shader when the fragment shader fails to compile
+    // (live editing recompiles on every keystroke-triggered attempt)
+    gl.deleteShader(vertexShader);
+    throw err;
+  }
 
   const program = gl.createProgram();
   if (!program) {
@@ -144,7 +152,8 @@ export function createFullscreenTriangleVAO(gl: WebGL2RenderingContext): WebGLVe
 export function createRenderTargetTexture(
   gl: WebGL2RenderingContext,
   width: number,
-  height: number
+  height: number,
+  options?: { filter?: 'nearest' | 'linear'; wrap?: 'clamp' | 'repeat' }
 ): WebGLTexture {
   const tex = gl.createTexture();
   if (!tex) {
@@ -166,14 +175,18 @@ export function createRenderTargetTexture(
     null              // no data (allocate only)
   );
 
-  // Set filtering to NEAREST (common for simulation/compute shaders)
-  // This prevents interpolation artifacts in PDE/physics shaders
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  // Default filtering is NEAREST (common for simulation/compute shaders —
+  // prevents interpolation artifacts in PDE/physics shaders).
+  // Linear filtering of float textures requires OES_texture_float_linear;
+  // the caller (ShaderEngine) checks the extension before requesting it.
+  const glFilter = options?.filter === 'linear' ? gl.LINEAR : gl.NEAREST;
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glFilter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, glFilter);
 
-  // Set wrap mode to CLAMP_TO_EDGE (prevent wrap-around at boundaries)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  // Default wrap is CLAMP_TO_EDGE (prevent wrap-around at boundaries)
+  const glWrap = options?.wrap === 'repeat' ? gl.REPEAT : gl.CLAMP_TO_EDGE;
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, glWrap);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, glWrap);
 
   gl.bindTexture(gl.TEXTURE_2D, null);
 

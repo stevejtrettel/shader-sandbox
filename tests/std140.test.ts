@@ -67,6 +67,20 @@ describe('packStd140', () => {
     expect([...out]).toEqual([1, 2, 0, 0, 3, 4, 0, 0]);
   });
 
+  it('writes into a provided out buffer for vec4/mat4 too (setArrayElement regression)', () => {
+    // vec4 and mat4 have tight == stride; the fast path must still honor
+    // an explicit out buffer (setArrayElement packs into a UBO subarray)
+    const out = new Float32Array(4);
+    const result = packStd140('vec4', 1, new Float32Array([1, 2, 3, 4]), out);
+    expect(result).toBe(out);
+    expect([...out]).toEqual([1, 2, 3, 4]);
+
+    const mat4Out = new Float32Array(16);
+    packStd140('mat4', 1, new Float32Array(16).map((_, i) => i + 1), mat4Out);
+    expect(mat4Out[0]).toBe(1);
+    expect(mat4Out[15]).toBe(16);
+  });
+
   it('stale padding in a reused out buffer is overwritten', () => {
     const out = new Float32Array([9, 9, 9, 9, 9, 9, 9, 9]);
     packStd140('vec3', 2, new Float32Array([1, 2, 3, 4, 5, 6]), out);

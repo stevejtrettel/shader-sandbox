@@ -71,6 +71,7 @@ export class ShaderEngine {
   private _frame: number = 0;
   private _time: number = 0;
   private _lastStepTime: number | null = null;
+  private _deltaTime = 0;
 
   private _passes: RuntimePass[] = [];
   private _textures: RuntimeTexture2D[] = [];
@@ -204,11 +205,11 @@ export class ShaderEngine {
   /**
    * Read pixels from a buffer pass (reads previous frame's data).
    */
-  readPixels(passName: PassName, x: number, y: number, w: number, h: number): Uint8Array {
+  readPixels(passName: PassName, x: number, y: number, w: number, h: number): Float32Array {
     const pass = this._passes.find(p => p.name === passName);
     if (!pass) {
       console.warn(`readPixels: pass '${passName}' not found`);
-      return new Uint8Array(w * h * 4);
+      return new Float32Array(w * h * 4);
     }
 
     const gl = this.gl;
@@ -216,8 +217,10 @@ export class ShaderEngine {
     // Attach previousTexture (has last completed frame)
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pass.previousTexture, 0);
 
-    const pixels = new Uint8Array(w * h * 4);
-    gl.readPixels(x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    // Buffers are RGBA32F — WebGL2 only guarantees RGBA/FLOAT reads from
+    // float framebuffers (RGBA/UNSIGNED_BYTE errors and returns zeros)
+    const pixels = new Float32Array(w * h * 4);
+    gl.readPixels(x, y, w, h, gl.RGBA, gl.FLOAT, pixels);
 
     // Restore currentTexture
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pass.currentTexture, 0);
@@ -239,11 +242,10 @@ export class ShaderEngine {
   }
 
   get stats(): EngineStats {
-    const dt = this._lastStepTime === null ? 0 : this._time - this._lastStepTime;
     return {
       frame: this._frame,
       time: this._time,
-      deltaTime: dt,
+      deltaTime: this._deltaTime,
       width: this._width,
       height: this._height,
     };
@@ -358,6 +360,7 @@ export class ShaderEngine {
       this._lastStepTime === null ? 0.0 : timeSeconds - this._lastStepTime;
     this._lastStepTime = timeSeconds;
     this._time = timeSeconds;
+    this._deltaTime = deltaTime;
 
     // Compute iDate: (year, month, day, seconds since midnight)
     const now = new Date();
@@ -434,8 +437,8 @@ export class ShaderEngine {
       gl.deleteFramebuffer(pass.framebuffer);
 
       // Create new textures at new resolution
-      pass.currentTexture = createRenderTargetTexture(gl, width, height);
-      pass.previousTexture = createRenderTargetTexture(gl, width, height);
+      pass.currentTexture = createRenderTargetTexture(gl, width, height, pass.bufferOptions);
+      pass.previousTexture = createRenderTargetTexture(gl, width, height, pass.bufferOptions);
 
       // Create new framebuffer (attached to current texture)
       pass.framebuffer = createFramebufferWithColorAttachment(gl, pass.currentTexture);
@@ -527,12 +530,6 @@ export class ShaderEngine {
   recompilePass(passName: PassName, newSource: string): { success: boolean; error?: string } {
     const gl = this.gl;
 
-    // Find the runtime pass
-    const runtimePass = this._passes.find((p) => p.name === passName);
-    if (!runtimePass) {
-      return { success: false, error: `Pass '${passName}' not found` };
-    }
-
     // Update the project's pass source (so buildFragmentShader uses it)
     const projectPass = this.project.passes[passName];
     if (!projectPass) {
@@ -541,6 +538,38 @@ export class ShaderEngine {
 
     // Build new fragment shader
     const { source: fragmentSource } = this.buildFragmentShader(newSource, projectPass.channels, projectPass.namedSamplers);
+
+    // A pass that failed to compile at load never made it into _passes.
+    // Build it from scratch so live editing can fix a broken project
+    // without a full reload.
+    const runtimePass = this._passes.find((p) => p.name === passName);
+    if (!runtimePass) {
+      try {
+        const program = createProgramFromSources(gl, VERTEX_SHADER_SOURCE, fragmentSource);
+        const uniforms = this.cacheUniformLocations(program, projectPass.namedSamplers);
+        const bufferOptions = this.resolveBufferOptions(projectPass);
+        const currentTexture = createRenderTargetTexture(gl, this._width, this._height, bufferOptions);
+        const previousTexture = createRenderTargetTexture(gl, this._width, this._height, bufferOptions);
+        const framebuffer = createFramebufferWithColorAttachment(gl, currentTexture);
+        this._passes.push({
+          name: passName,
+          projectChannels: projectPass.channels,
+          vao: this._sharedVAO!,
+          uniforms,
+          framebuffer,
+          currentTexture,
+          previousTexture,
+          namedSamplers: projectPass.namedSamplers,
+          bufferOptions,
+        });
+        projectPass.glslSource = newSource;
+        this._compilationErrors = this._compilationErrors.filter(e => e.passName !== passName);
+        this._uniformMgr.markAllScalarsDirty();
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
 
     try {
       // Try to compile new program
@@ -797,6 +826,24 @@ export class ShaderEngine {
   }
 
   /**
+   * Resolve a pass's buffer sampling options, downgrading 'linear' to
+   * 'nearest' with a warning when the device can't linearly filter float
+   * textures (OES_texture_float_linear).
+   */
+  private resolveBufferOptions(
+    projectPass: { name: PassName; bufferOptions?: { filter?: 'nearest' | 'linear'; wrap?: 'clamp' | 'repeat' } },
+  ): { filter?: 'nearest' | 'linear'; wrap?: 'clamp' | 'repeat' } | undefined {
+    const options = projectPass.bufferOptions;
+    if (options?.filter === 'linear' && !this.gl.getExtension('OES_texture_float_linear')) {
+      console.warn(
+        `Buffer pass '${projectPass.name}': linear filtering of float buffers is not supported on this device (missing OES_texture_float_linear). Falling back to 'nearest'.`
+      );
+      return { ...options, filter: 'nearest' };
+    }
+    return options;
+  }
+
+  /**
    * Initialize external textures based on project.textures.
    *
    * Creates a 1x1 placeholder immediately for each texture, then loads the
@@ -895,8 +942,9 @@ export class ShaderEngine {
         const uniforms = this.cacheUniformLocations(program, projectPass.namedSamplers);
 
         // Create ping-pong textures (MUST allocate both for all passes)
-        const currentTexture = createRenderTargetTexture(gl, this._width, this._height);
-        const previousTexture = createRenderTargetTexture(gl, this._width, this._height);
+        const bufferOptions = this.resolveBufferOptions(projectPass);
+        const currentTexture = createRenderTargetTexture(gl, this._width, this._height, bufferOptions);
+        const previousTexture = createRenderTargetTexture(gl, this._width, this._height, bufferOptions);
 
         // Create framebuffer (attached to current texture)
         const framebuffer = createFramebufferWithColorAttachment(gl, currentTexture);
@@ -911,6 +959,7 @@ export class ShaderEngine {
           currentTexture,
           previousTexture,
           namedSamplers: projectPass.namedSamplers,
+          bufferOptions,
         };
 
         this._passes.push(runtimePass);
@@ -1166,9 +1215,13 @@ export class ShaderEngine {
           return this._blackTexture!;
         }
 
-        // Default to previous frame (safer, matches common use case)
-        // Only use current frame if explicitly requested with current: true
-        return source.current ? targetPass.currentTexture : targetPass.previousTexture;
+        // previousTexture always holds the buffer's latest COMPLETED output
+        // (step() swaps right after each pass renders). Returning
+        // currentTexture would hand out stale data — or, for a self-read,
+        // the texture currently attached to the FBO (an illegal sampling
+        // feedback loop). `current: true` is validated at load time as an
+        // ordering assertion; both flags read the same texture here.
+        return targetPass.previousTexture;
       }
 
       case 'texture': {

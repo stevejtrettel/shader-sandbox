@@ -47,18 +47,13 @@ export class ErrorOverlay {
     // Combine: show common errors first, then pass-specific errors
     const allErrors = [...uniqueCommonErrors, ...passErrors];
 
-    // Parse and format errors with source context
+    // Parse and format errors with source context.
+    // The engine stores the RAW compiler message (compiled-source line
+    // numbers); parseShaderError translates each error line exactly once
+    // via the line mapping. originalLine (pre-translated by the engine for
+    // the first error) is used only to anchor the code-context box.
     const formattedErrors = allErrors.map(({passName, error, isFromCommon, originalLine, lineMapping}) => {
       const glslError = error.replace('Shader compilation failed:\n', '');
-
-      // Use originalLine (already computed by engine relative to user/common source)
-      const displayLine = originalLine;
-
-      // Adjust error message to show user-relative line numbers
-      let adjustedError = glslError;
-      if (displayLine !== null) {
-        adjustedError = glslError.replace(/ERROR:\s*\d+:(\d+):/g, `ERROR: 0:${displayLine}:`);
-      }
 
       // Get user's original source for code context
       let userSource: string | null = null;
@@ -71,9 +66,9 @@ export class ErrorOverlay {
 
       return {
         passName: isFromCommon ? 'common.glsl' : passName,
-        error: parseShaderError(adjustedError, lineMapping, isFromCommon),
-        codeContext: displayLine !== null && userSource
-          ? buildCodeContext(userSource, displayLine)
+        error: parseShaderError(glslError, lineMapping),
+        codeContext: originalLine !== null && userSource
+          ? buildCodeContext(userSource, originalLine)
           : null,
       };
     });
@@ -131,23 +126,31 @@ export class ErrorOverlay {
 
 /**
  * Parse WebGL error messages into user-friendly format with correct line numbers.
+ *
+ * Each ERROR line carries a compiled-source line number; classify it per
+ * line (common range / user range / generated preamble) so multi-error
+ * messages spanning common.glsl and pass code all translate correctly.
  */
-function parseShaderError(error: string, lineMapping: LineMapping, isFromCommon: boolean): string {
+export function parseShaderError(error: string, lineMapping: LineMapping): string {
+  const { commonStartLine, commonLines, userCodeStartLine } = lineMapping;
+
   return error.split('\n').map(line => {
     const match = line.match(/^ERROR:\s*(\d+):(\d+):\s*(.+)$/);
     if (match) {
       const [, , rawLineStr, message] = match;
       const rawLine = parseInt(rawLineStr, 10);
 
-      // Convert compiled line number to user-relative line
-      let userLine = rawLine;
-      if (isFromCommon && lineMapping.commonStartLine > 0) {
-        userLine = rawLine - lineMapping.commonStartLine + 1;
-      } else if (lineMapping.userCodeStartLine > 0 && rawLine >= lineMapping.userCodeStartLine) {
-        userLine = rawLine - lineMapping.userCodeStartLine + 1;
-      }
+      const inCommon = commonStartLine > 0 && commonLines > 0 &&
+        rawLine >= commonStartLine && rawLine < commonStartLine + commonLines;
 
-      return `Line ${userLine}: ${friendlyGLSLError(message)}`;
+      if (inCommon) {
+        return `common.glsl line ${rawLine - commonStartLine + 1}: ${friendlyGLSLError(message)}`;
+      }
+      if (userCodeStartLine > 0 && rawLine >= userCodeStartLine) {
+        return `Line ${rawLine - userCodeStartLine + 1}: ${friendlyGLSLError(message)}`;
+      }
+      // Error in engine-generated code (e.g. an injected uniform declaration)
+      return `Generated preamble line ${rawLine}: ${friendlyGLSLError(message)}`;
     }
     return line;
   }).join('\n');

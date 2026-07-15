@@ -108,6 +108,9 @@ export interface RuntimePass {
 
   // Named samplers (standard mode) - maps sampler name → channel source
   namedSamplers?: Map<string, ChannelSource>;
+
+  // Sampling options for the ping-pong textures (from named-buffer config)
+  bufferOptions?: { filter?: 'nearest' | 'linear'; wrap?: 'clamp' | 'repeat' };
 }
 
 // =============================================================================

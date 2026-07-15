@@ -111,7 +111,14 @@ export function isValidGLSLIdentifier(name: string): boolean {
 }
 
 const VALID_LAYOUTS = new Set(['fullscreen', 'default', 'split', 'tabbed']);
-const VALID_THEMES = new Set(['light', 'dark', 'system']);
+const VALID_THEMES = new Set(['auto', 'light', 'dark', 'system']);
+const VALID_UNIFORMS_UI = new Set(['panel', 'inline', 'off']);
+const VALID_BUFFER_FILTERS = new Set(['nearest', 'linear']);
+const VALID_BUFFER_WRAPS = new Set(['clamp', 'repeat']);
+const VALID_BUFFER_OPTION_KEYS = new Set(['filter', 'wrap']);
+
+/** Config fields that must be booleans when present. */
+const BOOLEAN_KEYS = ['controls', 'stats', 'playback', 'startPaused', 'stickyMouse'] as const;
 
 const VALID_TOP_LEVEL_KEYS = new Set([
   'mode', 'title', 'author', 'description', 'layout', 'theme', 'controls',
@@ -150,6 +157,54 @@ export function validateConfig(config: Record<string, any>, root: string): void 
     errors.push(`Invalid theme '${config.theme}'. Expected one of: ${[...VALID_THEMES].join(', ')}`);
   }
 
+  // Validate boolean fields (catches JSON mistakes like "controls": "false",
+  // which would otherwise be truthy)
+  for (const key of BOOLEAN_KEYS) {
+    if (config[key] !== undefined && typeof config[key] !== 'boolean') {
+      errors.push(`'${key}' must be true or false (unquoted), got ${JSON.stringify(config[key])}`);
+    }
+  }
+
+  // Validate uniformsUI
+  if (config.uniformsUI !== undefined && !VALID_UNIFORMS_UI.has(config.uniformsUI)) {
+    errors.push(`Invalid uniformsUI '${config.uniformsUI}'. Expected one of: ${[...VALID_UNIFORMS_UI].join(', ')}`);
+  }
+
+  // Validate pixelRatio
+  if (config.pixelRatio !== undefined) {
+    if (typeof config.pixelRatio !== 'number' || !Number.isFinite(config.pixelRatio) || config.pixelRatio <= 0) {
+      errors.push(`'pixelRatio' must be a positive number, got ${JSON.stringify(config.pixelRatio)}`);
+    }
+  }
+
+  // Named buffers/textures are a standard-mode feature; in shadertoy mode
+  // channels are bound per-pass via iChannel0-3.
+  if (config.mode === 'shadertoy') {
+    if (config.buffers !== undefined) {
+      errors.push(`'buffers' is not supported in shadertoy mode. Bind buffers per-pass with iChannel0-3 instead.`);
+    }
+    if (config.textures !== undefined) {
+      errors.push(`'textures' is not supported in shadertoy mode. Bind textures per-pass with iChannel0-3 instead.`);
+    }
+  } else {
+    // Standard mode: pass-level iChannel bindings and named buffers/textures
+    // are mutually exclusive (named samplers replace the iChannel preamble).
+    const hasNamed = (config.buffers && Object.keys(config.buffers).length > 0) ||
+                     (config.textures && Object.keys(config.textures).length > 0);
+    if (hasNamed) {
+      for (const passName of PASS_ORDER) {
+        const passConfig = config[passName];
+        if (!passConfig || typeof passConfig !== 'object') continue;
+        if (CHANNEL_KEYS.some((k) => passConfig[k] !== undefined)) {
+          errors.push(
+            `Pass '${passName}' uses iChannel bindings, but the project also defines named buffers/textures. ` +
+            `Use named samplers everywhere, or drop 'buffers'/'textures' and use iChannel bindings only.`
+          );
+        }
+      }
+    }
+  }
+
   // Validate uniform names
   if (config.uniforms && typeof config.uniforms === 'object') {
     for (const name of Object.keys(config.uniforms)) {
@@ -162,19 +217,31 @@ export function validateConfig(config: Record<string, any>, root: string): void 
     }
   }
 
-  // Validate buffer names
+  // Validate buffer names and options
   const bufferNames = new Set<string>();
   if (config.buffers) {
-    const names = Object.keys(config.buffers);
-    for (const name of names) {
-      if (typeof name !== 'string') {
-        errors.push(`Buffer name must be a string, got ${typeof name}`);
-        continue;
-      }
+    for (const [name, value] of Object.entries(config.buffers)) {
       if (!isValidGLSLIdentifier(name)) {
         errors.push(`Buffer name '${name}' is not a valid GLSL identifier`);
       }
       bufferNames.add(name);
+
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        errors.push(`Buffer '${name}' options must be an object (use {} for defaults)`);
+        continue;
+      }
+      const bufOpts = value as Record<string, any>;
+      for (const key of Object.keys(bufOpts)) {
+        if (!VALID_BUFFER_OPTION_KEYS.has(key)) {
+          warnings.push(`Unknown option '${key}' for buffer '${name}'`);
+        }
+      }
+      if (bufOpts.filter !== undefined && !VALID_BUFFER_FILTERS.has(bufOpts.filter)) {
+        errors.push(`Buffer '${name}': invalid filter '${bufOpts.filter}'. Expected one of: ${[...VALID_BUFFER_FILTERS].join(', ')}`);
+      }
+      if (bufOpts.wrap !== undefined && !VALID_BUFFER_WRAPS.has(bufOpts.wrap)) {
+        errors.push(`Buffer '${name}': invalid wrap '${bufOpts.wrap}'. Expected one of: ${[...VALID_BUFFER_WRAPS].join(', ')}`);
+      }
     }
   }
 

@@ -138,7 +138,25 @@ function listShaders(cwd) {
   console.log(`  npx shader dev ${shaders[0]}`);
 }
 
-async function create(projectName) {
+/** List template files (relative paths) that already exist in dest. */
+function findTemplateConflicts(src, dest, skipFiles, prefix = '') {
+  const conflicts = [];
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    if (skipFiles.includes(entry.name)) continue;
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const destPath = path.join(dest, rel);
+    if (entry.isDirectory()) {
+      if (fs.existsSync(destPath)) {
+        conflicts.push(...findTemplateConflicts(path.join(src, entry.name), dest, skipFiles, rel));
+      }
+    } else if (fs.existsSync(destPath)) {
+      conflicts.push(rel);
+    }
+  }
+  return conflicts;
+}
+
+async function create(projectName, { force = false } = {}) {
   const templatesDir = path.join(packageRoot, 'templates');
   const isCurrentDir = projectName === '.';
 
@@ -211,6 +229,20 @@ async function create(projectName) {
       }
     };
     fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
+  }
+
+  // Refuse to overwrite existing files (a project initialized into an
+  // existing folder may already have its own index.html / vite.config.js)
+  if (!force) {
+    const conflicts = findTemplateConflicts(templatesDir, projectDir, ['package.json']);
+    if (conflicts.length > 0) {
+      console.error('Error: the following files already exist and would be overwritten:');
+      for (const file of conflicts) console.error(`  - ${file}`);
+      console.error('');
+      console.error('Re-run with --force to overwrite them:');
+      console.error(`  npx shader-sandbox create ${projectName} --force`);
+      process.exit(1);
+    }
   }
 
   // Copy template files (skip package.json since we handled it above)
@@ -360,32 +392,23 @@ function shaderExists(cwd, shaderName) {
 }
 
 /**
- * Resolve a shader name to a directory path, handling bare .glsl files.
- * If shaders/<name>/ exists, returns { dir, cleanup: null }.
- * If shaders/<name>.glsl exists, creates a temp directory and returns { dir, cleanup }.
- * Returns null if neither exists.
+ * Resolve a shader name to its form: a folder or a bare .glsl file.
+ * Bare files are loaded directly by the library's project loader (with live
+ * reload) — no shadow copy is made. Returns 'folder', 'bare', or null.
  */
-function resolveShaderPath(cwd, shaderName) {
+function resolveShaderKind(cwd, shaderName) {
   const shadersDir = path.join(cwd, 'shaders');
   const folderPath = path.join(shadersDir, shaderName);
   const bareFile = path.join(shadersDir, `${shaderName}.glsl`);
+  const hasFolder = fs.existsSync(folderPath) && fs.statSync(folderPath).isDirectory();
+  const hasBare = fs.existsSync(bareFile);
 
-  if (fs.existsSync(folderPath) && fs.statSync(folderPath).isDirectory()) {
-    return { dir: folderPath, cleanup: null };
+  if (hasFolder && hasBare) {
+    console.warn(`Warning: both shaders/${shaderName}/ and shaders/${shaderName}.glsl exist — using the folder.`);
+    console.warn(`(If the folder is a leftover copy from an old shader-sandbox version, delete it to use the bare file.)`);
   }
-
-  if (fs.existsSync(bareFile)) {
-    // Create a temp directory with the .glsl file as image.glsl
-    fs.mkdirSync(folderPath, { recursive: true });
-    fs.copyFileSync(bareFile, path.join(folderPath, 'image.glsl'));
-    return {
-      dir: folderPath,
-      cleanup: () => {
-        try { fs.rmSync(folderPath, { recursive: true }); } catch {}
-      },
-    };
-  }
-
+  if (hasFolder) return 'folder';
+  if (hasBare) return 'bare';
   return null;
 }
 
@@ -401,20 +424,21 @@ function buildShader(shaderName, cwd) {
       return;
     }
 
-    const resolved = resolveShaderPath(cwd, shaderName);
-    if (!resolved) {
+    if (!resolveShaderKind(cwd, shaderName)) {
       reject(new Error(`Shader "${shaderName}" not found`));
       return;
     }
 
-    const { cleanup } = resolved;
-
     // Generate a shader-specific build entry that exports mount().
+    // The bare-file glob makes `shaders/<name>.glsl` shaders buildable too —
+    // the loader falls back to it when no folder matches.
     const buildEntryPath = path.join(cwd, '_build-entry.js');
     const buildEntryCode = `
 import { mount as _mount, loadDemo } from 'shader-sandbox';
 
-const glslFiles = import.meta.glob('./shaders/${shaderName}/**/*.glsl', { query: '?raw', import: 'default' });
+const folderGlsl = import.meta.glob('./shaders/${shaderName}/**/*.glsl', { query: '?raw', import: 'default' });
+const bareGlsl = import.meta.glob('./shaders/${shaderName}.glsl', { query: '?raw', import: 'default' });
+const glslFiles = { ...folderGlsl, ...bareGlsl };
 const jsonFiles = import.meta.glob('./shaders/${shaderName}/*.json', { import: 'default' });
 const imageFiles = import.meta.glob('./shaders/${shaderName}/**/*.{jpg,jpeg,png,gif,webp,bmp}', { query: '?url', import: 'default' });
 const scriptFiles = import.meta.glob('./shaders/${shaderName}/**/script.js');
@@ -456,8 +480,11 @@ if (typeof document !== 'undefined') {
 
     function cleanupAll() {
       try { fs.unlinkSync(buildEntryPath); } catch {}
-      if (cleanup) cleanup();
     }
+    // Clean up _build-entry.js even if the build is interrupted
+    const onSignal = () => { cleanupAll(); process.exit(1); };
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
 
     const viteBin = findViteBin(cwd);
     if (!viteBin) {
@@ -468,20 +495,33 @@ if (typeof document !== 'undefined') {
 
     const env = { ...process.env, SHADER_NAME: shaderName, SHADER_BUILD_ENTRY: '1' };
 
-    const child = spawn(viteBin, ['build'], {
-      cwd,
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-      env
-    });
+    // Windows needs shell:true for .cmd shims — quote the path so
+    // "C:\Users\John Smith\..." survives cmd.exe parsing
+    const child = spawn(
+      process.platform === 'win32' ? `"${viteBin}"` : viteBin,
+      ['build'],
+      {
+        cwd,
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+        env
+      }
+    );
+
+    function removeSignalHandlers() {
+      process.removeListener('SIGINT', onSignal);
+      process.removeListener('SIGTERM', onSignal);
+    }
 
     child.on('error', (err) => {
       cleanupAll();
+      removeSignalHandlers();
       reject(new Error(`Failed to start vite: ${err.message}`));
     });
 
     child.on('close', (code) => {
       cleanupAll();
+      removeSignalHandlers();
 
       if (code !== 0) {
         reject(new Error(`Build failed for "${shaderName}" (exit code ${code})`));
@@ -539,12 +579,18 @@ function runVite(viteArgs, shaderName, cleanup = null) {
 
   const env = { ...process.env, SHADER_NAME: shaderName };
 
-  const child = spawn(viteBin, viteArgs, {
-    cwd,
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-    env
-  });
+  // Windows needs shell:true for .cmd shims — quote the path so
+  // "C:\Users\John Smith\..." survives cmd.exe parsing
+  const child = spawn(
+    process.platform === 'win32' ? `"${viteBin}"` : viteBin,
+    viteArgs,
+    {
+      cwd,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+      env
+    }
+  );
 
   function onExit() {
     if (cleanup) cleanup();
@@ -575,7 +621,7 @@ switch (command) {
       console.error('  npx shader-sandbox create .');
       process.exit(1);
     }
-    create(name).catch(err => {
+    create(name, { force: args.includes('--force') }).catch(err => {
       console.error('Error creating project:', err.message || err);
       process.exit(1);
     });
@@ -650,11 +696,12 @@ switch (command) {
       process.exit(1);
     }
 
-    // Resolve bare .glsl files to a folder (creates a temp wrapper if needed)
-    const resolved = resolveShaderPath(cwd, shaderName);
+    // Bare .glsl files are loaded directly by the project loader — this
+    // just warns if a leftover folder shadows the file
+    resolveShaderKind(cwd, shaderName);
 
     console.log(`Starting dev server for "${shaderName}"...`);
-    runVite([], shaderName, resolved?.cleanup);
+    runVite([], shaderName);
     break;
   }
 

@@ -213,11 +213,16 @@ export type UniformValues = Record<string, UniformValue>;
 /**
  * Reference to another buffer pass.
  * By default, reads the previous frame (safe for all cases).
- * Use current: true to read from a buffer that has already run this frame.
+ * Reads always see the buffer's latest completed output (Shadertoy
+ * semantics): a buffer that already ran this frame gives this frame's
+ * output; otherwise you get last frame's. Setting current: true asserts
+ * that the source pass runs BEFORE this one (guaranteeing a this-frame
+ * read) — the loader rejects orderings that can't satisfy it, including
+ * self-references.
  */
 export interface ChannelJSONBuffer {
   buffer: PassName;
-  current?: boolean;  // Default: false (read previous frame)
+  current?: boolean;  // Default: false (no ordering assertion)
 }
 
 /**
@@ -376,6 +381,9 @@ export interface ShadertoyConfig {
   // Resolution settings
   /** Pixel ratio multiplier (default: window.devicePixelRatio). Use <1 for lower resolution. */
   pixelRatio?: number;
+
+  // Custom uniforms (same semantics as standard mode)
+  uniforms?: UniformDefinitions;
 
   // Passes (at top level)
   Image?: PassConfigSimplified;
@@ -541,6 +549,9 @@ export interface ShaderPass {
   channels: Channels;  // iChannel0..3
   /** Named samplers (standard mode). Maps sampler name → source. */
   namedSamplers?: Map<string, ChannelSource>;
+  /** Sampling options for this pass's ping-pong render targets
+   *  (from named-buffer config). Default: nearest / clamp. */
+  bufferOptions?: { filter?: 'nearest' | 'linear'; wrap?: 'clamp' | 'repeat' };
 }
 
 // =============================================================================
@@ -762,7 +773,7 @@ export interface ScriptEngineAPI {
   /** Upload or update a named texture for use as a script channel. */
   updateTexture(name: string, width: number, height: number, data: Uint8Array | Float32Array): void;
   /** Read pixels from a buffer pass (previous frame). Returns RGBA Uint8Array. */
-  readPixels(passName: string, x: number, y: number, width: number, height: number): Uint8Array;
+  readPixels(passName: string, x: number, y: number, width: number, height: number): Float32Array;
   readonly width: number;
   readonly height: number;
 

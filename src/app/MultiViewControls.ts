@@ -40,6 +40,7 @@ export class MultiViewControls {
   private controls: UniformControls | null = null;
   private isOpen: boolean = false;
   private isPaused: boolean = false;
+  private playPauseBtn: HTMLButtonElement | null = null;
 
   constructor(opts: MultiViewControlsOptions) {
     this.wrapper = opts.wrapper;
@@ -99,18 +100,20 @@ export class MultiViewControls {
     this.panel.appendChild(header);
 
     // Playback controls section
+    // (class must not be `.playback-controls` — that name belongs to the
+    // single-view button cluster in app.css and both sheets are bundled)
     const playbackSection = document.createElement('div');
-    playbackSection.className = 'controls-section playback-controls';
+    playbackSection.className = 'controls-section mv-playback-section';
 
     // Play/Pause button
     const playPauseBtn = document.createElement('button');
     playPauseBtn.className = 'control-btn play-pause-btn';
     playPauseBtn.title = 'Play/Pause';
+    this.playPauseBtn = playPauseBtn;
     this.updatePlayPauseIcon(playPauseBtn);
     playPauseBtn.addEventListener('click', () => {
       this.opts.onTogglePlayPause();
-      this.isPaused = this.opts.getPaused();
-      this.updatePlayPauseIcon(playPauseBtn);
+      this.setPaused(this.opts.getPaused());
     });
     playbackSection.appendChild(playPauseBtn);
 
@@ -160,6 +163,15 @@ export class MultiViewControls {
     this.panel.classList.add('closed');
 
     this.controlsWrapper.appendChild(this.panel);
+  }
+
+  /**
+   * Sync the play/pause icon with externally-driven state changes
+   * (mount handle pause/resume, keyboard shortcuts, startPaused).
+   */
+  setPaused(paused: boolean): void {
+    this.isPaused = paused;
+    if (this.playPauseBtn) this.updatePlayPauseIcon(this.playPauseBtn);
   }
 
   private updatePlayPauseIcon(btn: HTMLElement): void {

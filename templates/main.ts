@@ -115,6 +115,10 @@ async function initGallery() {
 
   cards.sort((a, b) => a.name.localeCompare(b.name));
 
+  // Escape config-supplied strings — they land in innerHTML
+  const esc = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
   rootContainer.innerHTML = `
     <style>
       body { background: #0a0a0f; margin: 0; }
@@ -177,10 +181,10 @@ async function initGallery() {
       <h1 class="gallery-title">Shader Gallery</h1>
       <div class="gallery-grid">
         ${cards.map(c => `
-          <a class="gallery-card" href="?shader=${c.name}">
-            <div class="gallery-card-title">${c.title}</div>
-            ${c.title !== c.name ? `<div class="gallery-card-name">${c.name}</div>` : ''}
-            ${c.description ? `<div class="gallery-card-desc">${c.description}</div>` : ''}
+          <a class="gallery-card" href="?shader=${encodeURIComponent(c.name)}">
+            <div class="gallery-card-title">${esc(c.title)}</div>
+            ${c.title !== c.name ? `<div class="gallery-card-name">${esc(c.name)}</div>` : ''}
+            ${c.description ? `<div class="gallery-card-desc">${esc(c.description)}</div>` : ''}
           </a>
         `).join('')}
       </div>

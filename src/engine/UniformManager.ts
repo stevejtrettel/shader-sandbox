@@ -183,24 +183,54 @@ export class UniformManager {
     ubo.dirty = true;
   }
 
+  /**
+   * Set a struct array from TIGHT per-element data (fields concatenated in
+   * declaration order, no padding) — the same layout getUniformValue returns.
+   * The data is std140-packed here, matching plain-array raw semantics.
+   */
   private setStructArrayRaw(name: string, def: StructArrayUniformDefinition, data: Float32Array): void {
-    this._store.setRaw(name, data);
-
     const ubo = this._uboMap.get(name) as StructArrayUBO | undefined;
     if (!ubo) return;
 
-    const maxFloats = ubo.layout.strideFloats * def.count;
+    const tightPerElement = ubo.layout.tightFloatsPerElement;
+    const maxFloats = tightPerElement * def.count;
     if (data.length > maxFloats) {
       console.warn(`setUniformValue('${name}'): data length ${data.length} exceeds max ${maxFloats}`);
       return;
     }
-
-    ubo.paddedData.set(data);
-    if (data.length < ubo.paddedData.length) {
-      ubo.paddedData.fill(0, data.length);
+    if (data.length % tightPerElement !== 0) {
+      console.warn(`setUniformValue('${name}'): data length ${data.length} is not a multiple of ${tightPerElement} (tight floats per element)`);
+      return;
     }
 
-    ubo.activeCount = Math.ceil(data.length / ubo.layout.strideFloats);
+    this._store.setRaw(name, data);
+
+    const elementCount = data.length / tightPerElement;
+
+    // Split tight data into per-field arrays, then std140-pack
+    const fieldData: Record<string, Float32Array> = {};
+    let fieldTightOffset = 0;
+    for (const field of ubo.layout.fields) {
+      const scratch = ubo.fieldScratch[field.name];
+      for (let i = 0; i < elementCount; i++) {
+        const src = i * tightPerElement + fieldTightOffset;
+        const dst = i * field.tightFloats;
+        for (let j = 0; j < field.tightFloats; j++) {
+          scratch[dst + j] = data[src + j];
+        }
+      }
+      fieldData[field.name] = scratch.subarray(0, elementCount * field.tightFloats);
+      fieldTightOffset += field.tightFloats;
+    }
+
+    packStructStd140(ubo.layout, elementCount, fieldData, ubo.paddedData);
+
+    const activeFloats = ubo.layout.strideFloats * elementCount;
+    if (activeFloats < ubo.paddedData.length) {
+      ubo.paddedData.fill(0, activeFloats);
+    }
+
+    ubo.activeCount = elementCount;
     ubo.dirty = true;
   }
 
@@ -369,8 +399,38 @@ export class UniformManager {
       ubo.paddedData.fill(0, activeFloats);
     }
 
+    // Mirror into the store's tight buffer so getUniformValue stays truthful
+    this.syncStructStore(name, ubo, fieldData, elementCount);
+
     ubo.activeCount = elementCount;
     ubo.dirty = true;
+  }
+
+  /** Write per-field tight data into the store's interleaved tight buffer. */
+  private syncStructStore(
+    name: string,
+    ubo: StructArrayUBO,
+    fieldData: Record<string, Float32Array>,
+    elementCount: number,
+  ): void {
+    const storeData = this._store.getRaw(name) as Float32Array | undefined;
+    if (!storeData) return;
+
+    const tightPerElement = ubo.layout.tightFloatsPerElement;
+    let fieldTightOffset = 0;
+    for (const field of ubo.layout.fields) {
+      const src = fieldData[field.name];
+      if (src) {
+        for (let i = 0; i < elementCount; i++) {
+          const srcBase = i * field.tightFloats;
+          const dstBase = i * tightPerElement + fieldTightOffset;
+          for (let j = 0; j < field.tightFloats; j++) {
+            storeData[dstBase + j] = src[srcBase + j] ?? 0;
+          }
+        }
+      }
+      fieldTightOffset += field.tightFloats;
+    }
   }
 
   /**
@@ -399,6 +459,23 @@ export class UniformManager {
     }
 
     packStructElementStd140(ubo.layout, index, fieldValues, ubo.paddedData);
+
+    // Mirror into the store's tight buffer so getUniformValue stays truthful
+    const storeData = this._store.getRaw(name) as Float32Array | undefined;
+    if (storeData) {
+      const tightPerElement = ubo.layout.tightFloatsPerElement;
+      let fieldTightOffset = 0;
+      for (const field of ubo.layout.fields) {
+        const vals = fieldValues[field.name];
+        if (vals) {
+          const dstBase = index * tightPerElement + fieldTightOffset;
+          for (let j = 0; j < field.tightFloats; j++) {
+            storeData[dstBase + j] = vals[j] ?? 0;
+          }
+        }
+        fieldTightOffset += field.tightFloats;
+      }
+    }
 
     if (index >= ubo.activeCount) {
       ubo.activeCount = index + 1;

@@ -202,7 +202,7 @@ export function validateUniforms(uniforms: UniformDefinitions, root: string): vo
  * Resolve "data" paths in uniform definitions.
  * Returns a map of uniform name → loaded data, separate from the definitions.
  */
-async function loadUniformData(
+export async function loadUniformData(
   loader: FileLoader,
   root: string,
   uniforms: UniformDefinitions,
@@ -374,6 +374,13 @@ export async function loadProjectFromFiles(
   }
 
   if (config) {
+    if (Array.isArray(config.views)) {
+      throw new Error(
+        `Multi-view projects (config with 'views') are only supported by the dev server. ` +
+        `'${root}' cannot be loaded through the runtime or Node loader.`
+      );
+    }
+
     validateConfig(config, root);
 
     if (config.mode === 'shadertoy') {
@@ -396,8 +403,25 @@ async function loadSinglePassProject(
   opts?: { script?: DemoScriptHooks | null },
 ): Promise<ShaderProject> {
   const imagePath = loader.joinPath(root, 'image.glsl');
+
   if (!(await loader.exists(imagePath))) {
-    throw new Error(`Single-pass project at '${root}' requires 'image.glsl'.`);
+    // Bare-file fallback: `shaders/foo.glsl` is a single-pass project
+    // equivalent to a folder containing only image.glsl
+    const barePath = `${root}.glsl`;
+    if (await loader.exists(barePath)) {
+      const bareSource = await loader.readText(barePath);
+      const noChannels: Channels = [{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }, { kind: 'none' }];
+      return buildShaderProject({
+        mode: 'standard',
+        root,
+        commonSource: null,
+        passes: {
+          Image: { name: 'Image', glslSource: bareSource, channels: noChannels },
+        },
+        script: opts?.script,
+      });
+    }
+    throw new Error(`Single-pass project at '${root}' requires 'image.glsl' (or a bare '${root}.glsl' file).`);
   }
 
   // Only validate extra files if we can list them (Node loader)
@@ -437,30 +461,19 @@ async function loadSinglePassProject(
 // Shadertoy Mode
 // =============================================================================
 
-async function loadShadertoyProject(
+/** Pass-level configs keyed by pass name (from config.json top-level keys). */
+type PassConfigs = Partial<Record<PassName, { source?: string; iChannel0?: any; iChannel1?: any; iChannel2?: any; iChannel3?: any }>>;
+
+/**
+ * Load all passes that have a pass-level config, resolving iChannel bindings.
+ * Shared by shadertoy mode and standard mode (channel-binding style).
+ */
+async function loadChannelPasses(
   loader: FileLoader,
   root: string,
-  config: ShadertoyConfig,
-  opts?: {
-    script?: DemoScriptHooks | null;
-    textureUrlResolver?: (path: string) => Promise<string>;
-  },
-): Promise<ShaderProject> {
-  const passConfigs = {
-    Image: config.Image,
-    BufferA: config.BufferA,
-    BufferB: config.BufferB,
-    BufferC: config.BufferC,
-    BufferD: config.BufferD,
-  };
-
-  const hasAnyPass = passConfigs.Image || passConfigs.BufferA || passConfigs.BufferB ||
-                     passConfigs.BufferC || passConfigs.BufferD;
-  if (!hasAnyPass) {
-    passConfigs.Image = {};
-  }
-
-  const commonSource = await resolveCommonSource(loader, root, config.common);
+  passConfigs: PassConfigs,
+  opts?: { textureUrlResolver?: (path: string) => Promise<string> },
+): Promise<{ passes: ShaderProject['passes']; textures: ShaderTexture2D[] }> {
   const textureRegistry = new TextureRegistry();
 
   // Pre-resolve texture paths → URLs (browser needs Vite resolution)
@@ -485,7 +498,6 @@ async function loadShadertoyProject(
     }
   }
 
-  // Load passes
   const passes: ShaderProject['passes'] = {} as any;
 
   for (const passName of PASS_ORDER) {
@@ -515,6 +527,65 @@ async function loadShadertoyProject(
     throw new Error(`config.json at '${root}' must define an Image pass.`);
   }
 
+  // Validate `current: true` ordering assertions: a this-frame read only
+  // exists when the source pass runs strictly before the consuming pass.
+  const EXEC_ORDER: PassName[] = ['BufferA', 'BufferB', 'BufferC', 'BufferD', 'Image'];
+  for (const passName of EXEC_ORDER) {
+    const pass = passes[passName];
+    if (!pass) continue;
+    pass.channels.forEach((ch, i) => {
+      if (ch.kind !== 'buffer' || !ch.current) return;
+      if (ch.buffer === passName) {
+        throw new Error(
+          `Pass '${passName}' iChannel${i} at '${root}': 'current: true' on a self-reference is impossible — ` +
+          `a pass cannot read its own current-frame output. Remove 'current' to read the previous frame.`
+        );
+      }
+      if (EXEC_ORDER.indexOf(ch.buffer) >= EXEC_ORDER.indexOf(passName)) {
+        throw new Error(
+          `Pass '${passName}' iChannel${i} at '${root}': 'current: true' requires '${ch.buffer}' to run before ` +
+          `'${passName}' (execution order: BufferA → BufferB → BufferC → BufferD → Image).`
+        );
+      }
+    });
+  }
+
+  return { passes, textures: textureRegistry.toArray() };
+}
+
+async function loadShadertoyProject(
+  loader: FileLoader,
+  root: string,
+  config: ShadertoyConfig,
+  opts?: {
+    script?: DemoScriptHooks | null;
+    textureUrlResolver?: (path: string) => Promise<string>;
+  },
+): Promise<ShaderProject> {
+  // Custom uniforms work the same way in both modes
+  let uniformData: Record<string, unknown> = {};
+  if (config.uniforms) {
+    validateUniforms(config.uniforms, root);
+    uniformData = await loadUniformData(loader, root, config.uniforms);
+  }
+
+  const passConfigs: PassConfigs = {
+    Image: config.Image,
+    BufferA: config.BufferA,
+    BufferB: config.BufferB,
+    BufferC: config.BufferC,
+    BufferD: config.BufferD,
+  };
+
+  const hasAnyPass = passConfigs.Image || passConfigs.BufferA || passConfigs.BufferB ||
+                     passConfigs.BufferC || passConfigs.BufferD;
+  if (!hasAnyPass) {
+    passConfigs.Image = {};
+  }
+
+  const commonSource = await resolveCommonSource(loader, root, config.common);
+  const { passes, textures } = await loadChannelPasses(loader, root, passConfigs, opts);
+
   return buildShaderProject({
     mode: 'shadertoy',
     root,
@@ -532,7 +603,9 @@ async function loadShadertoyProject(
     pixelRatio: config.pixelRatio,
     commonSource,
     passes,
-    textures: textureRegistry.toArray(),
+    textures,
+    uniforms: config.uniforms,
+    uniformData,
     script: opts?.script,
   });
 }
@@ -563,14 +636,36 @@ async function loadStandardProject(
     return loadStandardWithNamedBuffers(loader, root, config, commonSource, opts, uniformData);
   }
 
-  // Simple single-pass standard project (config with settings only)
-  const imagePath = loader.joinPath(root, 'image.glsl');
-  if (!(await loader.exists(imagePath))) {
-    throw new Error(`Standard mode project at '${root}' requires 'image.glsl'.`);
-  }
-  const imageSource = await loader.readText(imagePath);
+  // Pass-level iChannel bindings (validated as mutually exclusive with
+  // named buffers/textures) — load like shadertoy mode, keeping standard mode.
+  const cfg = config as Record<string, any>;
+  const passConfigs: PassConfigs = {
+    Image: cfg.Image,
+    BufferA: cfg.BufferA,
+    BufferB: cfg.BufferB,
+    BufferC: cfg.BufferC,
+    BufferD: cfg.BufferD,
+  };
+  const hasPassConfigs = PASS_ORDER.some((p) => passConfigs[p]);
 
-  const noChannels: Channels = [{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }, { kind: 'none' }];
+  let passes: ShaderProject['passes'];
+  let textures: ShaderTexture2D[] = [];
+
+  if (hasPassConfigs) {
+    if (!passConfigs.Image) passConfigs.Image = {};
+    ({ passes, textures } = await loadChannelPasses(loader, root, passConfigs, opts));
+  } else {
+    // Simple single-pass standard project (config with settings only)
+    const imagePath = loader.joinPath(root, 'image.glsl');
+    if (!(await loader.exists(imagePath))) {
+      throw new Error(`Standard mode project at '${root}' requires 'image.glsl'.`);
+    }
+    const imageSource = await loader.readText(imagePath);
+    const noChannels: Channels = [{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }, { kind: 'none' }];
+    passes = {
+      Image: { name: 'Image', glslSource: imageSource, channels: noChannels },
+    };
+  }
 
   return buildShaderProject({
     mode: 'standard',
@@ -588,9 +683,8 @@ async function loadStandardProject(
     stickyMouse: config.stickyMouse,
     pixelRatio: config.pixelRatio,
     commonSource,
-    passes: {
-      Image: { name: 'Image', glslSource: imageSource, channels: noChannels },
-    },
+    passes,
+    textures,
     uniforms: config.uniforms,
     uniformData,
     script: opts?.script,
@@ -686,11 +780,13 @@ async function loadStandardWithNamedBuffers(
     }
     const glslSource = await loader.readText(sourcePath);
 
+    const { filter, wrap } = buffersConfig[bufName] ?? {};
     passes[passName] = {
       name: passName,
       glslSource,
       channels: noChannels,
       namedSamplers: new Map(namedSamplers),
+      ...(filter || wrap ? { bufferOptions: { filter, wrap } } : {}),
     };
   }
 

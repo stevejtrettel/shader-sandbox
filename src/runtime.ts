@@ -36,10 +36,14 @@ function createFetchFileLoader(baseUrl: string): FileLoader {
     const url = resolveUrl(path);
     let pending = cache.get(url);
     if (!pending) {
-      pending = fetch(url).then(
-        (res) => (res.ok ? res.text() : null),
-        () => null,
-      );
+      // Only a 404 means "file absent". Other failures (500, 403, CORS,
+      // network down) must surface as errors — otherwise a failed config.json
+      // fetch silently degrades a multi-pass project to single-pass mode.
+      pending = fetch(url).then(async (res) => {
+        if (res.ok) return res.text();
+        if (res.status === 404) return null;
+        throw new Error(`Failed to fetch '${url}': HTTP ${res.status} ${res.statusText}`);
+      });
       cache.set(url, pending);
     }
     return pending;
@@ -71,10 +75,12 @@ function createFetchFileLoader(baseUrl: string): FileLoader {
     },
 
     joinPath(...parts: string[]): string {
+      // Normalize interior './' so config paths like "./data.json" resolve
       return parts
         .map((p, i) => (i === 0 ? p : p.replace(/^\/+/, '')))
         .join('/')
-        .replace(/\/+/g, '/');
+        .replace(/\/+/g, '/')
+        .replace(/\/\.\//g, '/');
     },
 
     baseName(path: string): string {
@@ -322,10 +328,14 @@ class ShaderSandbox extends HTMLElement {
   private _loading: boolean = false;
   private _placeholder: HTMLElement | null = null;
   private _savedGlsl: string | null = null;
+  /** Bumped on disconnect so an in-flight mount knows to abandon itself. */
+  private _generation: number = 0;
 
   connectedCallback() {
     const src = this.getAttribute('src');
-    const inlineGlsl = !src ? (this.textContent?.trim() || null) : null;
+    // textContent is cleared on first connect — fall back to the saved copy
+    // so the element survives being re-parented (frameworks move nodes)
+    const inlineGlsl = !src ? (this.textContent?.trim() || this._savedGlsl) : null;
 
     if (!src && !inlineGlsl) {
       console.error('<shader-sandbox>: provide a "src" attribute or inline GLSL content');
@@ -363,10 +373,14 @@ class ShaderSandbox extends HTMLElement {
     if (lazy) {
       this._observer = new IntersectionObserver(
         (entries) => {
-          if (entries[0].isIntersecting) {
+          // Entries batch during fast scrolls — only the LAST one reflects
+          // the element's current visibility
+          const entry = entries[entries.length - 1];
+          if (entry.isIntersecting) {
             if (!this._mounted && !this._loading) {
               this._mountShader(src, inlineGlsl);
-            } else if (this._handle) {
+            } else if (this._handle && !this.hasAttribute('static')) {
+              // static figures must stay on their rendered frame
               this._handle.resume();
             }
           } else if (this._handle) {
@@ -382,6 +396,7 @@ class ShaderSandbox extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._generation++;
     this._observer?.disconnect();
     this._observer = null;
     this._destroyShader();
@@ -448,18 +463,30 @@ class ShaderSandbox extends HTMLElement {
   private async _mountShader(src: string | null, inlineGlsl: string | null): Promise<void> {
     if (this._mounted || this._loading) return;
     this._loading = true;
+    const generation = this._generation;
     this._showLoading();
 
     try {
       const options = this._buildOptions();
 
+      let handle: MountHandle;
       if (inlineGlsl) {
-        this._handle = loadFromSource(this, inlineGlsl, options);
-        this._clearPlaceholder();
+        handle = loadFromSource(this, inlineGlsl, options);
       } else {
-        this._handle = await loadFromFolder(this, src!, options);
-        this._clearPlaceholder();
+        handle = await loadFromFolder(this, src!, options);
       }
+
+      // Removed from the DOM while the fetch/mount was in flight? Destroy
+      // immediately — otherwise the WebGL context and rAF loop leak in a
+      // detached element.
+      if (generation !== this._generation || !this.isConnected) {
+        handle.destroy();
+        this._clearPlaceholder();
+        return;
+      }
+
+      this._handle = handle;
+      this._clearPlaceholder();
 
       // Fade in the mounted content
       const layoutRoot = this.querySelector('.layout-default, .layout-fullscreen, .layout-split, .layout-tabbed');
@@ -470,7 +497,9 @@ class ShaderSandbox extends HTMLElement {
       this._mounted = true;
     } catch (err) {
       console.error('<shader-sandbox>: failed to load shader', err);
-      this._showError(err);
+      if (generation === this._generation && this.isConnected) {
+        this._showError(err);
+      }
     } finally {
       this._loading = false;
     }

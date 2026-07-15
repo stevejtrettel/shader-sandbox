@@ -79,8 +79,15 @@ export function packStd140(
   const tightPerElement = TIGHT_FLOATS[type];
   const strideFloats = STD140_STRIDE_FLOATS[type];
 
-  // Fast path: mat4 and vec4 are already std140-compatible
+  // Fast path: mat4 and vec4 are already std140-compatible.
+  // When a caller provides an output buffer it expects the data to land
+  // there (e.g. a subarray of a UBO's padded buffer) — so copy; only skip
+  // the copy when no output buffer was given.
   if (tightPerElement === strideFloats) {
+    if (out && out.length >= tightData.length) {
+      out.set(tightData);
+      return out;
+    }
     return tightData;
   }
 

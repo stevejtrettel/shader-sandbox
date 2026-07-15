@@ -23,6 +23,14 @@ export class MediaManager {
   private _needsAudio: boolean = false;
   private _videoTextures: RuntimeVideoTexture[] = [];
 
+  // getUserMedia/play are async: guard against dispose-during-init (which
+  // would leave the camera/mic running) and overlapping init calls (which
+  // would acquire two streams and leak one).
+  private _disposed = false;
+  private _audioInit: Promise<void> | null = null;
+  private _webcamInit: Promise<void> | null = null;
+  private _videoInits = new Map<string, Promise<void>>();
+
   constructor(gl: WebGL2RenderingContext, project: ShaderProject) {
     const allChannels = this.getAllChannelSources(project);
 
@@ -105,11 +113,25 @@ export class MediaManager {
   // Initialization (require user gesture for audio/webcam)
   // ===========================================================================
 
-  async initAudio(): Promise<void> {
-    if (!this._audioTexture || this._audioTexture.initialized) return;
+  initAudio(): Promise<void> {
+    if (this._disposed || !this._audioTexture || this._audioTexture.initialized) {
+      return Promise.resolve();
+    }
+    // Dedup overlapping calls (e.g. two quick user gestures)
+    if (!this._audioInit) {
+      this._audioInit = this.doInitAudio().finally(() => { this._audioInit = null; });
+    }
+    return this._audioInit;
+  }
 
+  private async doInitAudio(): Promise<void> {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (this._disposed || !this._audioTexture) {
+        // Disposed while permission dialog was open — release the mic
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
@@ -126,17 +148,34 @@ export class MediaManager {
     }
   }
 
-  async initWebcam(): Promise<void> {
+  initWebcam(): Promise<void> {
+    if (this._disposed) return Promise.resolve();
     const entry = this._videoTextures.find(v => v.kind === 'webcam' && !v.ready);
-    if (!entry) return;
+    if (!entry) return Promise.resolve();
 
+    if (!this._webcamInit) {
+      this._webcamInit = this.doInitWebcam(entry).finally(() => { this._webcamInit = null; });
+    }
+    return this._webcamInit;
+  }
+
+  private async doInitWebcam(entry: RuntimeVideoTexture): Promise<void> {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (this._disposed) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
       const video = document.createElement('video');
       video.srcObject = stream;
       video.muted = true;
       video.playsInline = true;
       await video.play();
+      if (this._disposed) {
+        stream.getTracks().forEach(t => t.stop());
+        video.srcObject = null;
+        return;
+      }
 
       entry.video = video;
       entry.stream = stream;
@@ -154,10 +193,20 @@ export class MediaManager {
     }
   }
 
-  async initVideo(src: string): Promise<void> {
+  initVideo(src: string): Promise<void> {
+    if (this._disposed) return Promise.resolve();
     const entry = this._videoTextures.find(v => v.kind === 'video' && v.src === src && !v.ready);
-    if (!entry) return;
+    if (!entry) return Promise.resolve();
 
+    let pending = this._videoInits.get(src);
+    if (!pending) {
+      pending = this.doInitVideo(src, entry).finally(() => { this._videoInits.delete(src); });
+      this._videoInits.set(src, pending);
+    }
+    return pending;
+  }
+
+  private async doInitVideo(src: string, entry: RuntimeVideoTexture): Promise<void> {
     const video = document.createElement('video');
     video.src = src;
     video.muted = true;
@@ -172,6 +221,11 @@ export class MediaManager {
 
     try {
       await video.play();
+      if (this._disposed) {
+        video.pause();
+        video.removeAttribute('src');
+        return;
+      }
       entry.video = video;
       entry.ready = true;
     } catch (e) {
@@ -214,6 +268,8 @@ export class MediaManager {
   // ===========================================================================
 
   dispose(gl: WebGL2RenderingContext): void {
+    this._disposed = true;
+
     // Stop audio
     if (this._audioTexture) {
       this._audioTexture.stream?.getTracks().forEach(t => t.stop());
@@ -224,7 +280,11 @@ export class MediaManager {
     // Stop video/webcam
     for (const entry of this._videoTextures) {
       entry.stream?.getTracks().forEach(t => t.stop());
-      entry.video?.pause();
+      if (entry.video) {
+        entry.video.pause();
+        entry.video.srcObject = null;
+        entry.video.removeAttribute('src');
+      }
       gl.deleteTexture(entry.texture);
     }
 

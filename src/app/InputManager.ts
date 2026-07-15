@@ -79,6 +79,7 @@ export class InputManager {
   private keyupHandler: (e: KeyboardEvent) => void;
   private keyboardTarget: HTMLElement | Document;
   private canvasListeners: Array<{ event: string; handler: EventListener }> = [];
+  private windowListeners: Array<{ event: string; handler: EventListener }> = [];
 
   constructor(canvas: HTMLCanvasElement, pixelRatio: number, keyboardTarget?: HTMLElement) {
     this.canvas = canvas;
@@ -124,6 +125,10 @@ export class InputManager {
       this.canvas.removeEventListener(event, handler);
     }
     this.canvasListeners = [];
+    for (const { event, handler } of this.windowListeners) {
+      window.removeEventListener(event, handler);
+    }
+    this.windowListeners = [];
   }
 
   private triggerGesture(): void {
@@ -169,11 +174,13 @@ export class InputManager {
 
     this.canvas.addEventListener('mousedown', onMouseDown as EventListener);
     this.canvas.addEventListener('mousemove', onMouseMove as EventListener);
-    this.canvas.addEventListener('mouseup', onMouseUp as EventListener);
+    // mouseup goes on window: releasing the button outside the canvas must
+    // still end the drag, or iMouse.z stays stuck positive
+    window.addEventListener('mouseup', onMouseUp as EventListener);
+    this.windowListeners.push({ event: 'mouseup', handler: onMouseUp as EventListener });
     this.canvasListeners.push(
       { event: 'mousedown', handler: onMouseDown as EventListener },
       { event: 'mousemove', handler: onMouseMove as EventListener },
-      { event: 'mouseup', handler: onMouseUp as EventListener },
     );
   }
 

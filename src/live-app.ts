@@ -68,6 +68,8 @@ class LiveApp extends HTMLElement {
   private _observer: IntersectionObserver | null = null;
   private _unmountTimer: ReturnType<typeof setTimeout> | null = null;
   private _mounted: boolean = false;
+  /** Bumped on every unmount so stale async mounts abandon themselves. */
+  private _mountGeneration: number = 0;
 
   connectedCallback() {
     const src = this.getAttribute('src');
@@ -96,7 +98,9 @@ class LiveApp extends HTMLElement {
     if (lazy) {
       this._observer = new IntersectionObserver(
         (entries) => {
-          if (entries[0].isIntersecting) {
+          // Entries batch during fast scrolls — only the LAST one reflects
+          // the element's current visibility
+          if (entries[entries.length - 1].isIntersecting) {
             // Cancel any pending unmount
             if (this._unmountTimer !== null) {
               clearTimeout(this._unmountTimer);
@@ -146,25 +150,38 @@ class LiveApp extends HTMLElement {
   private async _mountApp(): Promise<void> {
     if (this._mounted) return;
     this._mounted = true;
+    // Generation guard: a plain _mounted check can't tell "unmounted while
+    // loading" apart from "unmounted and re-mounted while loading" — the
+    // latter would let a stale import continuation orphan the new handle.
+    const generation = ++this._mountGeneration;
 
     const src = this.getAttribute('src')!;
     const options = this._buildOptions();
 
     try {
       const module = await import(/* @vite-ignore */ src) as AppModule;
-      if (!this._mounted) return; // unmounted while loading
+      if (generation !== this._mountGeneration || !this._mounted) return;
       if (!module.mount) {
         throw new Error('Module must export mount()');
       }
-      this._handle = await module.mount(this, options);
+      const handle = await module.mount(this, options);
+      // Destroyed while mount() itself was async? Clean up the orphan.
+      if (generation !== this._mountGeneration || !this._mounted) {
+        handle?.destroy?.();
+        return;
+      }
+      this._handle = handle;
     } catch (err) {
       console.error('<live-app>: failed to load module', err);
-      this._mounted = false;
+      if (generation === this._mountGeneration) {
+        this._mounted = false;
+      }
     }
   }
 
   private _unmountApp(): void {
     if (!this._mounted) return;
+    this._mountGeneration++;
     this._handle?.destroy();
     this._handle = null;
     this._mounted = false;

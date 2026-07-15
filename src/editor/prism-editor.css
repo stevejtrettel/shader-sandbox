@@ -49,8 +49,11 @@
   font-family: inherit;
   font-size: inherit;
   line-height: inherit;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  /* No wrapping: the line-number gutter emits one row per LOGICAL line,
+     so wrapped lines would desync every number below them. Long lines
+     scroll horizontally instead. */
+  white-space: pre;
+  word-wrap: normal;
   overflow: auto;
   box-sizing: border-box;
   tab-size: 2;

@@ -21,6 +21,12 @@ import {
   isAnyUBOUniform,
 } from '../project/types';
 
+/** Clone array-typed values so in-place slider mutation can't alias config defaults. */
+function cloneValue(value: UniformValue): UniformValue {
+  if (value instanceof Float32Array) return value.slice();
+  return Array.isArray(value) ? [...value] : value;
+}
+
 export interface UniformControlsOptions {
   /** Container element to mount controls into */
   container: HTMLElement;
@@ -53,10 +59,12 @@ export class UniformControls {
     this.uniforms = opts.uniforms;
     this.onChange = opts.onChange;
 
-    // Initialize values
+    // Initialize values. MUST clone: vec controls mutate the stored value
+    // in place on drag, and aliasing def.value would corrupt the config
+    // defaults (breaking Reset and every future mount).
     for (const [name, def] of Object.entries(this.uniforms)) {
       if (isAnyUBOUniform(def) || def.hidden) continue;
-      this.values[name] = opts.initialValues?.[name] ?? def.value;
+      this.values[name] = cloneValue(opts.initialValues?.[name] ?? def.value);
     }
 
     this.render();
@@ -639,8 +647,10 @@ export class UniformControls {
    */
   setValue(name: string, value: UniformValue): void {
     if (!(name in this.uniforms)) return;
-    this.values[name] = value;
-    this.updaters.get(name)?.(value);
+    // Clone — the caller's array must not become our mutable working copy
+    const cloned = cloneValue(value);
+    this.values[name] = cloned;
+    this.updaters.get(name)?.(cloned);
   }
 
   /**

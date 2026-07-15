@@ -77,6 +77,54 @@ describe('validateConfig', () => {
     expect(() => validateConfig({ theme: 'neon' }, 'test')).toThrow(/Invalid theme/);
   });
 
+  it('accepts every documented theme, including the default "auto"', () => {
+    for (const theme of ['auto', 'light', 'dark', 'system']) {
+      expect(() => validateConfig({ theme }, 'test')).not.toThrow();
+    }
+  });
+
+  it('rejects string-typed booleans like "controls": "false"', () => {
+    expect(() => validateConfig({ controls: 'false' }, 'test')).toThrow(/'controls' must be true or false/);
+    expect(() => validateConfig({ startPaused: 1 }, 'test')).toThrow(/'startPaused' must be true or false/);
+    expect(() => validateConfig({ controls: false, stats: true }, 'test')).not.toThrow();
+  });
+
+  it('rejects non-positive or non-numeric pixelRatio', () => {
+    expect(() => validateConfig({ pixelRatio: 0 }, 'test')).toThrow(/pixelRatio/);
+    expect(() => validateConfig({ pixelRatio: -1 }, 'test')).toThrow(/pixelRatio/);
+    expect(() => validateConfig({ pixelRatio: '2' }, 'test')).toThrow(/pixelRatio/);
+    expect(() => validateConfig({ pixelRatio: 0.5 }, 'test')).not.toThrow();
+  });
+
+  it('rejects unknown uniformsUI values', () => {
+    expect(() => validateConfig({ uniformsUI: 'sidebar' }, 'test')).toThrow(/Invalid uniformsUI/);
+    for (const v of ['panel', 'inline', 'off']) {
+      expect(() => validateConfig({ uniformsUI: v }, 'test')).not.toThrow();
+    }
+  });
+
+  it('rejects named buffers/textures in shadertoy mode', () => {
+    expect(() => validateConfig({ mode: 'shadertoy', buffers: { v: {} } }, 'test')).toThrow(/not supported in shadertoy mode/);
+    expect(() => validateConfig({ mode: 'shadertoy', textures: { t: 'a.png' } }, 'test')).toThrow(/not supported in shadertoy mode/);
+  });
+
+  it('rejects mixing iChannel bindings with named buffers/textures in standard mode', () => {
+    expect(() =>
+      validateConfig({ buffers: { v: {} }, Image: { iChannel0: 'BufferA' } }, 'test'),
+    ).toThrow(/mutually exclusive|named buffers/);
+    // iChannel bindings alone are fine in standard mode
+    expect(() => validateConfig({ Image: { iChannel0: 'photo.jpg' } }, 'test')).not.toThrow();
+  });
+
+  it('validates buffer options', () => {
+    expect(() => validateConfig({ buffers: { v: { filter: 'cubic' } } }, 'test')).toThrow(/invalid filter/);
+    expect(() => validateConfig({ buffers: { v: { wrap: 'mirror' } } }, 'test')).toThrow(/invalid wrap/);
+    expect(() => validateConfig({ buffers: { v: 'linear' } }, 'test')).toThrow(/must be an object/);
+    expect(() =>
+      validateConfig({ buffers: { v: { filter: 'nearest', wrap: 'repeat' } } }, 'test'),
+    ).not.toThrow();
+  });
+
   it('rejects reserved and invalid uniform names', () => {
     expect(() => validateConfig({ uniforms: { iTime: { type: 'float', value: 0 } } }, 'test')).toThrow(/reserved/);
     expect(() => validateConfig({ uniforms: { 'bad-name': { type: 'float', value: 0 } } }, 'test')).toThrow(

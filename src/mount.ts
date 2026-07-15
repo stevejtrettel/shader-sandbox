@@ -68,7 +68,9 @@ export interface MountHandle {
  * @returns Handle with playback controls, uniform access, and destroy() cleanup
  */
 export function mount(el: HTMLElement, options: MountOptions): MountHandle {
-  const { styled = true, pixelRatio = window.devicePixelRatio } = options;
+  const { styled = true } = options;
+  // Precedence: mount option → config.json pixelRatio → device ratio
+  const pixelRatio = options.pixelRatio ?? options.project.pixelRatio ?? window.devicePixelRatio;
 
   // Apply presentation overrides onto a shallow copy of the project
   const project = { ...options.project } as ShaderProject | MultiViewProject;
@@ -203,6 +205,9 @@ function mountMultiView(
     onSetUniformValue: (name, value) => app.setUniformValue(name, value),
     uniforms: project.uniforms,
   });
+
+  // Keep the panel's play/pause icon in sync with handle/keyboard-driven changes
+  app.onPauseChanged = (paused) => mvControls.setPaused(paused);
 
   if (!app.hasErrors()) {
     app.start();
