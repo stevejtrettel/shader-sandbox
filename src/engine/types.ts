@@ -111,6 +111,11 @@ export interface RuntimePass {
 
   // Sampling options for the ping-pong textures (from named-buffer config)
   bufferOptions?: { filter?: 'nearest' | 'linear'; wrap?: 'clamp' | 'repeat' };
+
+  // The EXACT compiled fragment source (preamble + common + user code).
+  // HTML export embeds this verbatim so exported shaders can never drift
+  // from what the live engine compiled.
+  fragmentSource: string;
 }
 
 // =============================================================================

@@ -19,6 +19,34 @@ export function isMP4Supported(): boolean {
   return typeof VideoEncoder !== 'undefined';
 }
 
+/**
+ * H.264 High Profile levels: [levelHex, maxMacroblocks, maxMacroblocksPerSec].
+ * A hardcoded level 4.0 caps out around 2 Mpx — far below the 4K/8K presets —
+ * so pick the smallest level that fits the requested size and framerate.
+ */
+const H264_LEVELS: Array<[string, number, number]> = [
+  ['28', 8192, 245760],       // 4.0 — up to ~1080p60
+  ['2a', 8704, 522240],       // 4.2
+  ['32', 22080, 589824],      // 5.0 — up to ~1440p
+  ['33', 36864, 983040],      // 5.1 — 4K30
+  ['34', 36864, 2073600],     // 5.2 — 4K60
+  ['3c', 139264, 4177920],    // 6.0 — 8K30
+  ['3d', 139264, 8355840],    // 6.1 — 8K60
+  ['3e', 139264, 16711680],   // 6.2
+];
+
+/** Pick an avc1 High Profile codec string whose level fits width×height @ fps. */
+export function pickH264Codec(width: number, height: number, fps: number): string {
+  const macroblocks = Math.ceil(width / 16) * Math.ceil(height / 16);
+  const mbPerSec = macroblocks * fps;
+  for (const [hex, maxMB, maxMBps] of H264_LEVELS) {
+    if (macroblocks <= maxMB && mbPerSec <= maxMBps) {
+      return `avc1.6400${hex}`;
+    }
+  }
+  return 'avc1.64003e'; // largest defined level — let the encoder reject if truly out of range
+}
+
 export class Mp4Encoder {
   private width: number;
   private height: number;
@@ -33,11 +61,19 @@ export class Mp4Encoder {
   private frameCount = 0;
 
   constructor(width: number, height: number, fps: number, quality: string = 'high') {
-    this.width = width;
-    this.height = height;
+    // H.264 requires even dimensions — round down rather than fail mid-render
+    if (width % 2 !== 0 || height % 2 !== 0) {
+      console.warn(`MP4 requires even dimensions; adjusting ${width}x${height} to ${width - (width % 2)}x${height - (height % 2)}`);
+    }
+    this.width = width - (width % 2);
+    this.height = height - (height % 2);
     this.fps = fps;
     this.bitrate = QUALITY_BITRATES[quality] ?? QUALITY_BITRATES.high;
   }
+
+  /** Actual encoded dimensions (after even-dimension adjustment). */
+  get encodedWidth(): number { return this.width; }
+  get encodedHeight(): number { return this.height; }
 
   async init(): Promise<void> {
     const {
@@ -71,7 +107,7 @@ export class Mp4Encoder {
     });
 
     this.encoder.configure({
-      codec: 'avc1.640028', // H.264 High Profile Level 4.0
+      codec: pickH264Codec(this.width, this.height, this.fps),
       width: this.width,
       height: this.height,
       bitrate: this.bitrate,
@@ -87,8 +123,17 @@ export class Mp4Encoder {
   async addFrame(canvas: HTMLCanvasElement): Promise<void> {
     if (!this.encoder) throw new Error('Mp4Encoder not initialized');
 
-    const bitmap = await createImageBitmap(canvas);
-    const frame = new VideoFrame(bitmap, {
+    // Backpressure: GL renders frames far faster than hardware encoders
+    // consume them at high resolutions — without this, raw VideoFrames pile
+    // up in the WebCodecs queue unboundedly.
+    while (this.encoder.encodeQueueSize > 4) {
+      await new Promise<void>((resolve) => {
+        this.encoder!.addEventListener('dequeue', () => resolve(), { once: true });
+      });
+    }
+
+    // VideoFrame accepts a canvas directly — no ImageBitmap detour needed
+    const frame = new VideoFrame(canvas, {
       timestamp: (this.frameCount / this.fps) * 1_000_000, // microseconds
       duration: (1 / this.fps) * 1_000_000,
     });
@@ -96,7 +141,6 @@ export class Mp4Encoder {
     const keyFrame = this.frameCount % (this.fps * 2) === 0; // keyframe every 2 seconds
     this.encoder.encode(frame, { keyFrame });
     frame.close();
-    bitmap.close();
 
     this.frameCount++;
   }

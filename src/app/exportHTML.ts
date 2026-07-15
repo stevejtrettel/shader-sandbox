@@ -1,24 +1,91 @@
 /**
  * HTML Export - Standalone shader export
  *
- * Exports the current shader project as a self-contained HTML file
- * with embedded WebGL2 renderer. Supports:
- * - Multi-pass buffers with ping-pong FBOs
- * - Scalar uniforms (baked current values)
- * - Array uniforms via UBOs (baked std140 data)
- * - Scripts (setup/onFrame inlined via Function.toString)
- * - Keyboard texture with event handlers
- * - Procedural grid for texture channels
- * - Black texture for audio/webcam/video channels
+ * Exports the current shader project as a self-contained HTML file with an
+ * embedded WebGL2 player.
+ *
+ * Drift-proofing: the export embeds each pass's EXACT compiled fragment
+ * source from the live engine (engine.getPassExportData()), so all GLSL
+ * generation — preambles, uniform declarations, keyboard helpers, cubemap
+ * rewriting, named samplers — happens exactly once, in the engine. The
+ * player only compiles the provided sources and binds serialized state.
+ * The std140 packing used for script-driven uniform updates is embedded
+ * via packTightToStd140.toString() and unit-tested against the engine's
+ * packer (tests/exportPacking.test.ts).
+ *
+ * Not included (by design, see README): audio/webcam/video inputs are
+ * replaced with black; image textures with a procedural grid.
  */
 
-import type { ShaderProject, ChannelSource } from '../project/types';
+import type { ShaderProject, ChannelSource, ArrayUniformType } from '../project/types';
 import { isAnyUBOUniform } from '../project/types';
 import type { ShaderEngine } from '../engine/ShaderEngine';
-import { glslTypeName } from '../engine/std140';
+import { VERTEX_SHADER_SOURCE } from '../engine/shaderSource';
+import { computeStructLayout, std140FloatCount, tightFloatCount } from '../engine/std140';
 
 /** Escape a string for embedding in JS template literals. */
 const escJS = (s: string) => s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+
+/** Serialized channel/sampler binding for the export player. */
+type ExportBinding =
+  | { kind: 'none' }
+  | { kind: 'black' }         // audio/webcam/video → excluded from exports
+  | { kind: 'procedural' }    // image textures → grid pattern
+  | { kind: 'keyboard' }
+  | { kind: 'buffer'; buffer: string }
+  | { kind: 'script'; name: string };
+
+function serializeBinding(ch: ChannelSource): ExportBinding {
+  switch (ch.kind) {
+    case 'buffer': return { kind: 'buffer', buffer: ch.buffer };
+    case 'texture': return { kind: 'procedural' };
+    case 'keyboard': return { kind: 'keyboard' };
+    case 'script': return { kind: 'script', name: ch.name };
+    case 'audio':
+    case 'webcam':
+    case 'video': return { kind: 'black' };
+    default: return { kind: 'none' };
+  }
+}
+
+/**
+ * Pack tightly-laid-out element data into an std140 buffer.
+ *
+ * SELF-CONTAINED — no imports, no closure captures — because it is embedded
+ * into exported HTML via .toString(). Plain arrays are modeled as
+ * single-field structs. Must stay behaviorally identical to the engine's
+ * packStd140/packStructStd140 (enforced by tests/exportPacking.test.ts).
+ */
+export function packTightToStd140(
+  fields: Array<{ offsetFloats: number; tightFloats: number; type: string }>,
+  strideFloats: number,
+  count: number,
+  tight: ArrayLike<number>,
+  out: Float32Array,
+): void {
+  const tightPerElement = fields.reduce((sum, f) => sum + f.tightFloats, 0);
+  for (let i = 0; i < count; i++) {
+    let tightOff = i * tightPerElement;
+    const elementBase = i * strideFloats;
+    for (const field of fields) {
+      const dst = elementBase + field.offsetFloats;
+      if (field.type === 'mat3') {
+        // mat3: 3 columns of vec3, each padded to vec4
+        for (let col = 0; col < 3; col++) {
+          for (let row = 0; row < 3; row++) {
+            out[dst + col * 4 + row] = tight[tightOff + col * 3 + row] ?? 0;
+          }
+          out[dst + col * 4 + 3] = 0;
+        }
+      } else {
+        for (let j = 0; j < field.tightFloats; j++) {
+          out[dst + j] = tight[tightOff + j] ?? 0;
+        }
+      }
+      tightOff += field.tightFloats;
+    }
+  }
+}
 
 /**
  * Export the current shader as a standalone HTML file and trigger download.
@@ -40,179 +107,70 @@ export function exportHTML(project: ShaderProject, engine: ShaderEngine): void {
   console.log(`Exported: ${filename}`);
 }
 
-interface PassInfo {
-  name: string;
-  source: string;
-  channels: ChannelSource[];
-  channelTypes: string[]; // 'none' | 'buffer:BufferA' | 'procedural' | 'keyboard' | 'black' | 'script:name'
-}
-
-function generateStandaloneHTML(project: ShaderProject, engine: ShaderEngine): string {
+/** Exported for tests (escaping round-trips); use exportHTML() from app code. */
+export function generateStandaloneHTML(project: ShaderProject, engine: ShaderEngine): string {
   const title = project.meta.title;
-  const commonSource = project.commonSource ?? '';
   const uniformValues = engine.getUniformValues();
   const uboData = engine.getUBOExportData();
+  const passData = engine.getPassExportData();
 
-  // ── Collect pass info ──
-  const passOrder = ['BufferA', 'BufferB', 'BufferC', 'BufferD', 'Image'] as const;
-  const passes: PassInfo[] = [];
-  let hasKeyboard = false;
-  let hasScriptTextures = false;
+  // ── Passes: exact compiled sources + serialized bindings ──
+  const passes = passData.map(p => ({
+    name: p.name,
+    fragmentSource: p.fragmentSource,
+    channels: p.channels.map(serializeBinding),
+    samplers: p.namedSamplers.map(([name, src]) => [name, serializeBinding(src)] as const),
+  }));
 
-  for (const passName of passOrder) {
-    const pass = project.passes[passName];
-    if (!pass) continue;
+  const hasKeyboard = passes.some(p =>
+    p.channels.some(c => c.kind === 'keyboard') || p.samplers.some(([, s]) => s.kind === 'keyboard'));
+  const hasScriptTextures = passes.some(p =>
+    p.channels.some(c => c.kind === 'script') || p.samplers.some(([, s]) => s.kind === 'script'));
+  const hasScript = !!(project.scriptSource || project.script?.setup || project.script?.onFrame);
 
-    const channelTypes = pass.channels.map((ch: ChannelSource) => {
-      if (ch.kind === 'buffer') return `buffer:${ch.buffer}`;
-      if (ch.kind === 'texture') return 'procedural';
-      if (ch.kind === 'keyboard') { hasKeyboard = true; return 'keyboard'; }
-      if (ch.kind === 'script') { hasScriptTextures = true; return `script:${ch.name}`; }
-      if (ch.kind === 'audio' || ch.kind === 'webcam' || ch.kind === 'video') return 'black';
-      return 'none';
-    });
-
-    passes.push({
-      name: passName,
-      source: pass.glslSource,
-      channels: pass.channels,
-      channelTypes,
-    });
-  }
-
-  const hasScript = !!(project.script?.setup || project.script?.onFrame);
-
-  // ── Scalar uniform values ──
-  const scalarUniforms = Object.entries(project.uniforms)
-    .filter(([, def]) => !isAnyUBOUniform(def));
-
-  const scalarInits: string[] = [];
-  for (const [name, def] of scalarUniforms) {
+  // ── Scalar uniforms: keep TYPE so the player binds int/bool via uniform1i ──
+  const scalarDefs: Record<string, { type: string; value: unknown }> = {};
+  for (const [name, def] of Object.entries(project.uniforms)) {
     if (isAnyUBOUniform(def)) continue;
-    const value = uniformValues[name] ?? def.value;
-    if (def.type === 'float' || def.type === 'int') {
-      scalarInits.push(`  '${name}': ${value}`);
-    } else if (def.type === 'bool') {
-      scalarInits.push(`  '${name}': ${value ? 1 : 0}`);
-    } else if (def.type === 'vec2') {
-      const v = value as number[];
-      scalarInits.push(`  '${name}': [${v[0]}, ${v[1]}]`);
-    } else if (def.type === 'vec3') {
-      const v = value as number[];
-      scalarInits.push(`  '${name}': [${v[0]}, ${v[1]}, ${v[2]}]`);
-    } else if (def.type === 'vec4') {
-      const v = value as number[];
-      scalarInits.push(`  '${name}': [${v[0]}, ${v[1]}, ${v[2]}, ${v[3]}]`);
-    }
+    scalarDefs[name] = { type: def.type, value: uniformValues[name] ?? def.value };
   }
 
-  // ── Scalar uniform GLSL declarations ──
-  const scalarDecls = scalarUniforms.map(([name, def]) => {
-    const t = (def as { type: string }).type === 'bool' ? 'bool' : (def as { type: string }).type;
-    return `uniform ${t} ${name};`;
-  }).join('\n');
-
-  // ── UBO GLSL declarations ──
-  const uboDecls = uboData.map(u => {
+  // ── UBOs: baked std140 data + layout info for script-driven repacking ──
+  const uboJS = uboData.map(u => {
+    let fields: Array<{ offsetFloats: number; tightFloats: number; type: string }>;
+    let strideFloats: number;
     if (u.struct) {
-      // Struct array uniform
-      const fieldDecls = Object.entries(u.struct)
-        .map(([fname, ftype]) => `  ${ftype} ${fname};`)
-        .join('\n');
-      return `// Struct array uniform: ${u.name} (max ${u.count})\n` +
-        `struct _st_${u.name} {\n${fieldDecls}\n};\n` +
-        `layout(std140) uniform _ub_${u.name} {\n` +
-        `  _st_${u.name} ${u.name}[${u.count}];\n` +
-        `};\n` +
-        `uniform int ${u.name}_count;`;
+      const layout = computeStructLayout(u.struct as Record<string, ArrayUniformType>);
+      fields = layout.fields.map(f => ({
+        offsetFloats: f.offsetBytes / 4,
+        tightFloats: f.tightFloats,
+        type: f.type,
+      }));
+      strideFloats = layout.strideFloats;
+    } else {
+      fields = [{
+        offsetFloats: 0,
+        tightFloats: tightFloatCount(u.type as ArrayUniformType, 1),
+        type: u.type,
+      }];
+      strideFloats = std140FloatCount(u.type as ArrayUniformType, 1);
     }
-    // Plain array uniform
-    return `// Array uniform: ${u.name} (max ${u.count})\n` +
-      `layout(std140) uniform _ub_${u.name} {\n` +
-      `  ${glslTypeName(u.type as any)} ${u.name}[${u.count}];\n` +
-      `};\n` +
-      `uniform int ${u.name}_count;`;
-  }).join('\n\n');
-
-  // ── UBO baked data as JS arrays ──
-  const uboInits = uboData.map(u => {
-    const arr = Array.from(u.paddedData).map(v => v.toFixed(6)).join(', ');
-    return `  { name: '${u.name}', type: '${u.type}', count: ${u.count}, binding: ${u.bindingPoint}, data: new Float32Array([${arr}]) }`;
+    const dataStr = Array.from(u.paddedData).map(v => Number(v.toFixed(6))).join(',');
+    return `  { name: ${JSON.stringify(u.name)}, binding: ${u.bindingPoint}, count: ${u.count}, activeCount: ${u.activeCount}, strideFloats: ${strideFloats}, fields: ${JSON.stringify(fields)}, data: new Float32Array([${dataStr}]) }`;
   }).join(',\n');
 
-  // ── Script function sources ──
-  let scriptSetupSource = '';
-  let scriptOnFrameSource = '';
-  if (hasScript) {
-    if (project.script?.setup) {
-      scriptSetupSource = project.script.setup.toString();
-    }
-    if (project.script?.onFrame) {
-      scriptOnFrameSource = project.script.onFrame.toString();
-    }
-  }
+  // ── Script sources ──
+  // Preferred: the raw script.js module text (real module semantics —
+  // module-level state and helper functions survive the export).
+  // Fallback: Function.toString() of the hooks, which only works for
+  // self-contained hooks (no module-scope references).
+  const scriptModuleSource = project.scriptSource ?? '';
+  const scriptSetupSource = project.script?.setup?.toString() ?? '';
+  const scriptOnFrameSource = project.script?.onFrame?.toString() ?? '';
 
-  // ── Keyboard GLSL helpers ──
-  const keyboardGLSL = hasKeyboard ? `
-// --- Keyboard helpers ---
-const int KEY_A = 65; const int KEY_B = 66; const int KEY_C = 67; const int KEY_D = 68;
-const int KEY_E = 69; const int KEY_F = 70; const int KEY_G = 71; const int KEY_H = 72;
-const int KEY_I = 73; const int KEY_J = 74; const int KEY_K = 75; const int KEY_L = 76;
-const int KEY_M = 77; const int KEY_N = 78; const int KEY_O = 79; const int KEY_P = 80;
-const int KEY_Q = 81; const int KEY_R = 82; const int KEY_S = 83; const int KEY_T = 84;
-const int KEY_U = 85; const int KEY_V = 86; const int KEY_W = 87; const int KEY_X = 88;
-const int KEY_Y = 89; const int KEY_Z = 90;
-const int KEY_0 = 48; const int KEY_1 = 49; const int KEY_2 = 50; const int KEY_3 = 51;
-const int KEY_4 = 52; const int KEY_5 = 53; const int KEY_6 = 54; const int KEY_7 = 55;
-const int KEY_8 = 56; const int KEY_9 = 57;
-const int KEY_LEFT = 37; const int KEY_UP = 38; const int KEY_RIGHT = 39; const int KEY_DOWN = 40;
-const int KEY_SPACE = 32; const int KEY_ENTER = 13; const int KEY_TAB = 9; const int KEY_ESC = 27;
-const int KEY_BACKSPACE = 8; const int KEY_DELETE = 46; const int KEY_SHIFT = 16;
-const int KEY_CTRL = 17; const int KEY_ALT = 18;
-const int KEY_F1 = 112; const int KEY_F2 = 113; const int KEY_F3 = 114; const int KEY_F4 = 115;
-const int KEY_F5 = 116; const int KEY_F6 = 117; const int KEY_F7 = 118; const int KEY_F8 = 119;
-const int KEY_F9 = 120; const int KEY_F10 = 121; const int KEY_F11 = 122; const int KEY_F12 = 123;
-float keyDown(int key) { return textureLod(iChannel0, vec2((float(key) + 0.5) / 256.0, 0.25), 0.0).x; }
-float keyToggle(int key) { return textureLod(iChannel0, vec2((float(key) + 0.5) / 256.0, 0.75), 0.0).x; }
-bool isKeyDown(int key) { return keyDown(key) > 0.5; }
-bool isKeyToggled(int key) { return keyToggle(key) > 0.5; }
-` : '';
-
-  // ── Build pass data for JS ──
-  const passesJS = passes.map(p => {
-    return `  { name: '${p.name}', source: \`${escJS(p.source)}\`, channels: ${JSON.stringify(p.channelTypes)} }`;
-  }).join(',\n');
-
-  // ── Build the fragment preamble ──
-  // Matches shaderSource.ts FRAGMENT_PREAMBLE + uniform declarations
-  const fragPreamble = `#version 300 es
-precision highp float;
-
-const float ST_PI = 3.14159265359;
-const float ST_TWOPI = 6.28318530718;
-vec2 _st_dirToEquirect(vec3 dir) {
-  float phi = atan(dir.z, dir.x);
-  float theta = asin(dir.y);
-  return vec2(phi / ST_TWOPI + 0.5, theta / ST_PI + 0.5);
-}
-
-uniform vec3  iResolution;
-uniform float iTime;
-uniform float iTimeDelta;
-uniform int   iFrame;
-uniform vec4  iMouse;
-uniform bool  iMousePressed;
-uniform vec4  iDate;
-uniform float iFrameRate;
-uniform vec3  iChannelResolution[4];
-uniform sampler2D iChannel0;
-uniform sampler2D iChannel1;
-uniform sampler2D iChannel2;
-uniform sampler2D iChannel3;
-
-${uboDecls}
-${scalarDecls}
-${keyboardGLSL}`;
+  const passesJS = passes.map(p =>
+    `  { name: ${JSON.stringify(p.name)}, fragmentSource: \`${escJS(p.fragmentSource)}\`, channels: ${JSON.stringify(p.channels)}, samplers: ${JSON.stringify(p.samplers)} }`
+  ).join(',\n');
 
   // ── Assemble HTML ──
   return `<!DOCTYPE html>
@@ -241,38 +199,25 @@ ${keyboardGLSL}`;
   <div class="container">
     <canvas id="canvas"></canvas>
   </div>
-  <script>
+  <script type="module">
 // Shader Sandbox Export - ${title}
 // Generated ${new Date().toISOString()}
+// Fragment sources below are the EXACT sources the live engine compiled.
 
-// ── Constants ──
-
-const VERTEX_SHADER = \`#version 300 es
-precision highp float;
-layout(location = 0) in vec2 position;
-void main() { gl_Position = vec4(position, 0.0, 1.0); }
-\`;
-
-const FRAGMENT_PREAMBLE = \`${escJS(fragPreamble)}\`;
-
-const FRAGMENT_SUFFIX = \`
-out vec4 fragColor;
-void main() { mainImage(fragColor, gl_FragCoord.xy); }
-\`;
-
-const COMMON_SOURCE = \`${escJS(commonSource)}\`;
+const VERTEX_SHADER = \`${escJS(VERTEX_SHADER_SOURCE)}\`;
 
 const PASSES = [
 ${passesJS}
 ];
 
-const UNIFORM_VALUES = {
-${scalarInits.join(',\n')}
-};
+const UNIFORM_DEFS = ${JSON.stringify(scalarDefs, null, 2)};
 
 const UBO_DATA = [
-${uboInits}
+${uboJS}
 ];
+
+// std140 packer — embedded from the library source (see exportHTML.ts)
+const packTightToStd140 = ${packTightToStd140.toString()};
 
 // ── WebGL Setup ──
 
@@ -327,7 +272,7 @@ const proceduralTex = createProceduralTexture();
 const blackTex = createBlackTexture();
 ${hasKeyboard ? `
 // ── Keyboard Texture (256x3) ──
-// Row 0: current key state, Row 1: key down events, Row 2: toggle state
+// Row 0: held, Row 1: pressed this frame, Row 2: toggle
 const keyboardTex = gl.createTexture();
 const keyboardData = new Uint8Array(256 * 3);
 gl.bindTexture(gl.TEXTURE_2D, keyboardTex);
@@ -337,9 +282,9 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-const keyStates = new Uint8Array(256);     // row 0: held
-const keyDown_ev = new Uint8Array(256);    // row 1: down this frame
-const keyToggle_st = new Uint8Array(256);  // row 2: toggle
+const keyStates = new Uint8Array(256);
+const keyDown_ev = new Uint8Array(256);
+const keyToggle_st = new Uint8Array(256);
 
 document.addEventListener('keydown', e => {
   const k = e.keyCode;
@@ -441,94 +386,153 @@ let width = canvas.width = container.clientWidth * devicePixelRatio;
 let height = canvas.height = container.clientHeight * devicePixelRatio;
 
 const runtimePasses = PASSES.map(pass => {
-  const fragSource = FRAGMENT_PREAMBLE +
-    (COMMON_SOURCE ? '\\n// Common\\n' + COMMON_SOURCE + '\\n' : '') +
-    '\\n// User code\\n' + pass.source + FRAGMENT_SUFFIX;
-  const program = createProgram(fragSource);
+  const program = createProgram(pass.fragmentSource);
   const currentTexture = createRenderTexture(width, height);
   const previousTexture = createRenderTexture(width, height);
   const framebuffer = createFramebuffer(currentTexture);
 
-  // Cache uniform locations
+  const loc = name => gl.getUniformLocation(program, name);
   const uniforms = {
-    iResolution: gl.getUniformLocation(program, 'iResolution'),
-    iTime: gl.getUniformLocation(program, 'iTime'),
-    iTimeDelta: gl.getUniformLocation(program, 'iTimeDelta'),
-    iFrame: gl.getUniformLocation(program, 'iFrame'),
-    iMouse: gl.getUniformLocation(program, 'iMouse'),
-    iMousePressed: gl.getUniformLocation(program, 'iMousePressed'),
-    iDate: gl.getUniformLocation(program, 'iDate'),
-    iFrameRate: gl.getUniformLocation(program, 'iFrameRate'),
-    iChannel: [0,1,2,3].map(i => gl.getUniformLocation(program, 'iChannel' + i)),
-    iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution'),
+    iResolution: loc('iResolution'),
+    iTime: loc('iTime'),
+    iTimeDelta: loc('iTimeDelta'),
+    iFrame: loc('iFrame'),
+    iMouse: loc('iMouse'),
+    iMousePressed: loc('iMousePressed'),
+    iDate: loc('iDate'),
+    iFrameRate: loc('iFrameRate'),
+    iChannel: [0,1,2,3].map(i => loc('iChannel' + i)),
+    iChannelResolution: loc('iChannelResolution'),
+    samplers: pass.samplers.map(([name]) => [name, loc(name), loc(name + '_resolution')]),
     custom: {},
     uboCountLocs: {},
   };
 
-  // Scalar uniform locations
-  for (const name of Object.keys(UNIFORM_VALUES)) {
-    uniforms.custom[name] = gl.getUniformLocation(program, name);
+  for (const name of Object.keys(UNIFORM_DEFS)) {
+    uniforms.custom[name] = loc(name);
   }
 
-  // UBO block bindings and count locations
   for (const ubo of UBO_DATA) {
     const blockIndex = gl.getUniformBlockIndex(program, '_ub_' + ubo.name);
     if (blockIndex !== gl.INVALID_INDEX) {
       gl.uniformBlockBinding(program, blockIndex, ubo.binding);
     }
-    uniforms.uboCountLocs[ubo.name] = gl.getUniformLocation(program, ubo.name + '_count');
+    uniforms.uboCountLocs[ubo.name] = loc(ubo.name + '_count');
   }
 
-  return { name: pass.name, channels: pass.channels, program, framebuffer, currentTexture, previousTexture, uniforms };
+  return { name: pass.name, channels: pass.channels, samplers: pass.samplers, program, framebuffer, currentTexture, previousTexture, uniforms };
 });
 
 // ── UBO Buffers ──
 
-const uboBuffers = UBO_DATA.map(ubo => {
+for (const ubo of UBO_DATA) {
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.UNIFORM_BUFFER, buffer);
   gl.bufferData(gl.UNIFORM_BUFFER, ubo.data, gl.DYNAMIC_DRAW);
   gl.bindBufferBase(gl.UNIFORM_BUFFER, ubo.binding, buffer);
-  return { name: ubo.name, buffer, count: ubo.count, data: ubo.data };
-});
+  ubo.buffer = buffer;
+  ubo.dirty = false;
+  ubo.tightPerElement = ubo.fields.reduce((s, f) => s + f.tightFloats, 0);
+}
 
 const findPass = name => runtimePasses.find(p => p.name === name);
-${hasScript ? `
-// ── Script Setup ──
+const findUbo = name => UBO_DATA.find(u => u.name === name);
 
+/** Resolve a serialized binding to a texture + its resolution. */
+function resolveBinding(b) {
+  if (b.kind === 'buffer') {
+    const src = findPass(b.buffer);
+    // previousTexture always holds the latest completed output (same
+    // invariant as the live engine)
+    return src ? [src.previousTexture, width, height] : [blackTex, 1, 1];
+  }
+  if (b.kind === 'procedural') return [proceduralTex, 8, 8];
+  if (b.kind === 'keyboard') return [${hasKeyboard ? 'keyboardTex' : 'blackTex'}, 256, 3];
+  if (b.kind === 'script') {
+    const stex = typeof scriptTextures !== 'undefined' ? scriptTextures.get(b.name) : null;
+    return stex ? [stex.texture, stex.width, stex.height] : [blackTex, 1, 1];
+  }
+  return [blackTex, 1, 1];
+}
+${hasScript ? `
+// ── Script Support ──
+${scriptModuleSource ? `
+// The original script.js, embedded verbatim and imported as a real ES
+// module so module-level state and helpers work exactly as they did live.
+const SCRIPT_MODULE_SOURCE = \`${escJS(scriptModuleSource)}\`;
+
+let scriptSetup = null;
+let scriptOnFrame = null;
+{
+  const blobUrl = URL.createObjectURL(new Blob([SCRIPT_MODULE_SOURCE], { type: 'text/javascript' }));
+  try {
+    const mod = await import(blobUrl);
+    if (typeof mod.setup === 'function') scriptSetup = mod.setup;
+    if (typeof mod.onFrame === 'function') scriptOnFrame = mod.onFrame;
+  } catch (e) {
+    console.error('Failed to load embedded script module:', e);
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+` : `
 const scriptSetup = ${scriptSetupSource || 'null'};
 const scriptOnFrame = ${scriptOnFrameSource || 'null'};
+`}
+function setUboTight(ubo, tight) {
+  const count = Math.floor(tight.length / ubo.tightPerElement);
+  if (count > ubo.count) {
+    console.warn('setUniformValue(' + ubo.name + '): ' + count + ' elements exceeds max ' + ubo.count);
+    return;
+  }
+  packTightToStd140(ubo.fields, ubo.strideFloats, count, tight, ubo.data);
+  ubo.activeCount = count;
+  ubo.dirty = true;
+}
 
 const scriptEngine = {
   setUniformValue(name, value) {
-    // Check if this is an array uniform (Float32Array)
-    if (value instanceof Float32Array) {
-      const ubo = uboBuffers.find(u => u.name === name);
-      if (ubo) {
-        // Pack to std140: user provides tight data, we need to pad
-        // For simplicity, copy directly (assume already padded or vec4/mat4)
-        const len = Math.min(value.length, ubo.data.length);
-        ubo.data.set(value.subarray(0, len));
-        gl.bindBuffer(gl.UNIFORM_BUFFER, ubo.buffer);
-        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, ubo.data);
-      }
-    } else {
-      UNIFORM_VALUES[name] = value;
+    const ubo = findUbo(name);
+    if (ubo) {
+      // Same contract as the live engine: tight per-element data, packed here
+      setUboTight(ubo, value);
+    } else if (name in UNIFORM_DEFS) {
+      UNIFORM_DEFS[name].value = value;
     }
   },
   getUniformValue(name) {
-    return UNIFORM_VALUES[name];
+    return UNIFORM_DEFS[name] ? UNIFORM_DEFS[name].value : undefined;
   },
+  setArrayUniform(name, data) {
+    const ubo = findUbo(name);
+    if (!ubo) { console.warn('setArrayUniform: unknown uniform ' + name); return; }
+    const flat = Array.isArray(data[0]) ? data.flat() : data;
+    setUboTight(ubo, flat);
+  },
+  setActiveCount(name, count) {
+    const ubo = findUbo(name);
+    if (ubo && count >= 0 && count <= ubo.count) ubo.activeCount = count;
+  },
+  setArrayElement(name, index, value) {
+    const ubo = findUbo(name);
+    if (!ubo) return;
+    const vals = typeof value === 'number' ? [value] : value;
+    packTightToStd140(ubo.fields, ubo.strideFloats, 1, vals, ubo.data.subarray(index * ubo.strideFloats));
+    if (index >= ubo.activeCount) ubo.activeCount = index + 1;
+    ubo.dirty = true;
+  },
+  setStructArrayUniform() { console.warn('setStructArrayUniform: not supported in exports; use setUniformValue with tight data'); },
+  setStructArrayElement() { console.warn('setStructArrayElement: not supported in exports'); },
   updateTexture(name, w, h, data) {
-    updateScriptTexture(name, w, h, data);
+    if (typeof updateScriptTexture !== 'undefined') updateScriptTexture(name, w, h, data);
   },
   readPixels(passName, x, y, w, h) {
     const pass = findPass(passName);
-    if (!pass) return new Uint8Array(w * h * 4);
+    if (!pass) return new Float32Array(w * h * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, pass.framebuffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pass.previousTexture, 0);
-    const pixels = new Uint8Array(w * h * 4);
-    gl.readPixels(x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    const pixels = new Float32Array(w * h * 4);
+    gl.readPixels(x, y, w, h, gl.RGBA, gl.FLOAT, pixels);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pass.currentTexture, 0);
     return pixels;
   },
@@ -538,7 +542,7 @@ const scriptEngine = {
 };
 
 try {
-  if (scriptSetup) scriptSetup(scriptEngine);
+  if (scriptSetup) scriptSetup(scriptEngine, { isRestore: false });
 } catch(e) { console.error('script setup error:', e); }
 ` : ''}
 // ── Mouse ──
@@ -559,7 +563,7 @@ canvas.addEventListener('mousemove', e => {
   mouse[0] = (e.clientX - rect.left) / rect.width * width;
   mouse[1] = (1 - (e.clientY - rect.top) / rect.height) * height;
 });
-canvas.addEventListener('mouseup', () => {
+window.addEventListener('mouseup', () => {
   mouseDown = false;
   mouse[2] = -Math.abs(mouse[2]);
   mouse[3] = -Math.abs(mouse[3]);
@@ -609,11 +613,19 @@ function render(now) {
     date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds() + date.getMilliseconds() / 1000];
 ${hasKeyboard ? '\n  updateKeyboardTexture();' : ''}
 ${hasScript ? `
-  // Run script onFrame
   try {
     if (scriptOnFrame) scriptOnFrame(scriptEngine, time, deltaTime, frame);
   } catch(e) { console.error('script onFrame error:', e); }
 ` : ''}
+  // Upload any UBOs dirtied by the script
+  for (const ubo of UBO_DATA) {
+    if (ubo.dirty) {
+      gl.bindBuffer(gl.UNIFORM_BUFFER, ubo.buffer);
+      gl.bufferSubData(gl.UNIFORM_BUFFER, 0, ubo.data);
+      ubo.dirty = false;
+    }
+  }
+
   gl.bindVertexArray(vao);
 
   runtimePasses.forEach(pass => {
@@ -631,60 +643,60 @@ ${hasScript ? `
     gl.uniform4fv(pass.uniforms.iDate, iDate);
     gl.uniform1f(pass.uniforms.iFrameRate, 1 / deltaTime);
 
-    // Scalar custom uniforms
-    for (const [name, value] of Object.entries(UNIFORM_VALUES)) {
-      const loc = pass.uniforms.custom[name];
-      if (!loc) continue;
-      if (Array.isArray(value)) {
-        if (value.length === 2) gl.uniform2fv(loc, value);
-        else if (value.length === 3) gl.uniform3fv(loc, value);
-        else if (value.length === 4) gl.uniform4fv(loc, value);
-      } else if (typeof value === 'number') {
-        gl.uniform1f(loc, value);
+    // Scalar custom uniforms — typed binding (int/bool need uniform1i)
+    for (const [name, def] of Object.entries(UNIFORM_DEFS)) {
+      const uloc = pass.uniforms.custom[name];
+      if (!uloc) continue;
+      const v = def.value;
+      switch (def.type) {
+        case 'int': gl.uniform1i(uloc, v); break;
+        case 'bool': gl.uniform1i(uloc, v ? 1 : 0); break;
+        case 'float': gl.uniform1f(uloc, v); break;
+        case 'vec2': gl.uniform2fv(uloc, v); break;
+        case 'vec3': gl.uniform3fv(uloc, v); break;
+        case 'vec4': gl.uniform4fv(uloc, v); break;
       }
     }
 
-    // UBO count uniforms
+    // UBO count uniforms — active element count, not capacity
     for (const ubo of UBO_DATA) {
       const countLoc = pass.uniforms.uboCountLocs[ubo.name];
-      if (countLoc) gl.uniform1i(countLoc, ubo.count);
+      if (countLoc) gl.uniform1i(countLoc, ubo.activeCount);
     }
 
-    // Bind channels
-    const channelRes = new Float32Array(12); // iChannelResolution[4] × vec3
+    // Bind iChannel0-3 (shadertoy mode)
+    let unit = 0;
+    const channelRes = new Float32Array(12);
     pass.channels.forEach((ch, i) => {
-      gl.activeTexture(gl.TEXTURE0 + i);
-      if (ch === 'none') {
-        gl.bindTexture(gl.TEXTURE_2D, blackTex);
-      } else if (ch === 'procedural') {
-        gl.bindTexture(gl.TEXTURE_2D, proceduralTex);
-        channelRes[i*3] = 8; channelRes[i*3+1] = 8; channelRes[i*3+2] = 1;
-      } else if (ch === 'keyboard') {
-        gl.bindTexture(gl.TEXTURE_2D, ${hasKeyboard ? 'keyboardTex' : 'blackTex'});
-        channelRes[i*3] = 256; channelRes[i*3+1] = 3; channelRes[i*3+2] = 1;
-      } else if (ch === 'black') {
-        gl.bindTexture(gl.TEXTURE_2D, blackTex);
-      } else if (ch.startsWith('buffer:')) {
-        const srcPass = findPass(ch.slice(7));
-        gl.bindTexture(gl.TEXTURE_2D, srcPass ? srcPass.previousTexture : blackTex);
-        channelRes[i*3] = width; channelRes[i*3+1] = height; channelRes[i*3+2] = 1;
-      } else if (ch.startsWith('script:')) {
-        const stex = scriptTextures?.get(ch.slice(7));
-        gl.bindTexture(gl.TEXTURE_2D, stex ? stex.texture : blackTex);
-        if (stex) { channelRes[i*3] = stex.width; channelRes[i*3+1] = stex.height; channelRes[i*3+2] = 1; }
-      } else {
-        gl.bindTexture(gl.TEXTURE_2D, blackTex);
-      }
-      gl.uniform1i(pass.uniforms.iChannel[i], i);
+      const chLoc = pass.uniforms.iChannel[i];
+      if (!chLoc) return;
+      const [tex, w, h] = resolveBinding(ch);
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.uniform1i(chLoc, unit);
+      channelRes[i*3] = w; channelRes[i*3+1] = h; channelRes[i*3+2] = 1;
+      unit++;
     });
-
     if (pass.uniforms.iChannelResolution) {
       gl.uniform3fv(pass.uniforms.iChannelResolution, channelRes);
     }
 
+    // Bind named samplers (standard mode)
+    for (let s = 0; s < pass.samplers.length; s++) {
+      const [, binding] = pass.samplers[s];
+      const [, samplerLoc, resLoc] = pass.uniforms.samplers[s];
+      if (!samplerLoc) continue;
+      const [tex, w, h] = resolveBinding(binding);
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.uniform1i(samplerLoc, unit);
+      if (resLoc) gl.uniform3f(resLoc, w, h, 1);
+      unit++;
+    }
+
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    // Swap textures
+    // Swap ping-pong textures
     const temp = pass.currentTexture;
     pass.currentTexture = pass.previousTexture;
     pass.previousTexture = temp;

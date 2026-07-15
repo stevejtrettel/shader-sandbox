@@ -18,6 +18,7 @@ import {
   UniformValues,
   isAnyUBOUniform,
 } from '../project/types';
+import { PASS_EXECUTION_ORDER } from '../project/configHelpers';
 
 import { UniformStore } from '../uniforms/UniformStore';
 
@@ -285,14 +286,35 @@ export class ShaderEngine {
   setStructArrayElement(name: string, index: number, data: Record<string, number | number[]>): void { this._uniformMgr.setStructArrayElement(name, index, data); }
 
   /** Export UBO data for HTML export (copies current padded data). */
-  getUBOExportData(): Array<{ name: string; type: string; count: number; bindingPoint: number; paddedData: Float32Array; struct?: Record<string, string> }> {
+  getUBOExportData(): Array<{ name: string; type: string; count: number; activeCount: number; bindingPoint: number; paddedData: Float32Array; struct?: Record<string, string> }> {
     return this._uniformMgr.ubos.map(u => ({
       name: u.name,
       type: u.kind === 'struct' ? 'struct' : u.def.type,
       count: u.def.count,
+      // Live active count, not capacity — shaders loop `i < name_count`
+      activeCount: u.activeCount,
       bindingPoint: u.bindingPoint,
       paddedData: new Float32Array(u.paddedData),
       struct: u.kind === 'struct' ? (u.def.struct as Record<string, string>) : undefined,
+    }));
+  }
+
+  /**
+   * Per-pass data for HTML export: the exact compiled fragment source plus
+   * resolved channel/sampler bindings. Embedding the compiled source means
+   * the export can never drift from what the live engine ran.
+   */
+  getPassExportData(): Array<{
+    name: PassName;
+    fragmentSource: string;
+    channels: ChannelSource[];
+    namedSamplers: Array<[string, ChannelSource]>;
+  }> {
+    return this._passes.map(p => ({
+      name: p.name,
+      fragmentSource: p.fragmentSource,
+      channels: [...p.projectChannels],
+      namedSamplers: p.namedSamplers ? [...p.namedSamplers.entries()] : [],
     }));
   }
 
@@ -400,7 +422,7 @@ export class ShaderEngine {
     gl.viewport(0, 0, this._width, this._height);
 
     // Execute passes in Shadertoy order
-    const passOrder: PassName[] = ['BufferA', 'BufferB', 'BufferC', 'BufferD', 'Image'];
+    const passOrder = PASS_EXECUTION_ORDER;
 
     for (const passName of passOrder) {
       const runtimePass = this._passes.find((p) => p.name === passName);
@@ -561,6 +583,7 @@ export class ShaderEngine {
           previousTexture,
           namedSamplers: projectPass.namedSamplers,
           bufferOptions,
+          fragmentSource,
         });
         projectPass.glslSource = newSource;
         this._compilationErrors = this._compilationErrors.filter(e => e.passName !== passName);
@@ -581,8 +604,10 @@ export class ShaderEngine {
       // Cache new uniform locations
       runtimePass.uniforms = this.cacheUniformLocations(newProgram, projectPass.namedSamplers);
 
-      // Update the stored source in the project
+      // Update the stored source in the project and the compiled source
+      // (kept for HTML export)
       projectPass.glslSource = newSource;
+      runtimePass.fragmentSource = fragmentSource;
 
       // Clear any previous compilation errors for this pass
       this._compilationErrors = this._compilationErrors.filter(e => e.passName !== passName);
@@ -612,7 +637,7 @@ export class ShaderEngine {
     this.project.commonSource = newCommonSource;
 
     const errors: Array<{ passName: PassName; error: string }> = [];
-    const passOrder: PassName[] = ['BufferA', 'BufferB', 'BufferC', 'BufferD', 'Image'];
+    const passOrder = PASS_EXECUTION_ORDER;
 
     // Try to recompile all passes
     for (const passName of passOrder) {
@@ -925,7 +950,7 @@ export class ShaderEngine {
     this._sharedVAO = sharedVAO;
 
     // Build passes in Shadertoy order
-    const passOrder: PassName[] = ['BufferA', 'BufferB', 'BufferC', 'BufferD', 'Image'];
+    const passOrder = PASS_EXECUTION_ORDER;
 
     for (const passName of passOrder) {
       const projectPass = project.passes[passName];
@@ -960,6 +985,7 @@ export class ShaderEngine {
           previousTexture,
           namedSamplers: projectPass.namedSamplers,
           bufferOptions,
+          fragmentSource,
         };
 
         this._passes.push(runtimePass);
