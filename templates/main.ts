@@ -14,6 +14,8 @@ import {
 import type {
   ProjectConfig,
 } from 'shader-sandbox';
+// @ts-ignore — plain JS module shared with the CLI's build-gallery
+import { renderGalleryHTML } from './gallery.js';
 
 // Get shader name from env (set by dev script) or URL param
 function getShaderName(): string {
@@ -57,8 +59,14 @@ async function main() {
     // Script files (script.js hooks for JS-driven computation)
     const scriptFiles = import.meta.glob<any>('./shaders/**/script.js');
 
+    // Raw script text (retained for HTML export's embedded module)
+    const rawScriptFiles = import.meta.glob<string>('./shaders/**/script.js', {
+      query: '?raw',
+      import: 'default',
+    });
+
     // Load the specific shader project
-    const project = await loadDemo(`shaders/${shaderName}`, glslFiles, jsonFiles, imageFiles, scriptFiles);
+    const project = await loadDemo(`shaders/${shaderName}`, glslFiles, jsonFiles, imageFiles, scriptFiles, rawScriptFiles);
 
     // Get root container
     const rootContainer = document.getElementById('app');
@@ -66,8 +74,9 @@ async function main() {
       throw new Error('Container element #app not found');
     }
 
-    // Mount the shader — handles layout, wiring, and start
-    const handle = await mount(rootContainer, { project });
+    // Mount the shader — handles layout, wiring, and start.
+    // Dev server = author mode: full toolbar regardless of viewer chrome config.
+    const handle = await mount(rootContainer, { project, authorTools: true });
 
     // Expose for debugging
     (window as any).app = handle.app;
@@ -115,81 +124,10 @@ async function initGallery() {
 
   cards.sort((a, b) => a.name.localeCompare(b.name));
 
-  // Escape config-supplied strings — they land in innerHTML
-  const esc = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-  rootContainer.innerHTML = `
-    <style>
-      body { background: #0a0a0f; margin: 0; }
-      .gallery-container {
-        min-height: 100vh;
-        padding: 60px 40px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        color: #e0e0e0;
-      }
-      .gallery-title {
-        text-align: center;
-        font-size: 28px;
-        font-weight: 600;
-        margin-bottom: 40px;
-        color: #fff;
-        letter-spacing: -0.5px;
-      }
-      .gallery-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-        gap: 20px;
-        max-width: 1200px;
-        margin: 0 auto;
-      }
-      .gallery-card {
-        background: rgba(30, 30, 40, 0.8);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 10px;
-        padding: 24px;
-        text-decoration: none;
-        color: inherit;
-        transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
-        backdrop-filter: blur(12px);
-        cursor: pointer;
-      }
-      .gallery-card:hover {
-        transform: translateY(-2px);
-        border-color: rgba(100, 140, 255, 0.3);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-      }
-      .gallery-card-title {
-        font-size: 16px;
-        font-weight: 600;
-        margin-bottom: 6px;
-        color: #fff;
-      }
-      .gallery-card-name {
-        font-size: 12px;
-        font-family: 'Monaco', 'Menlo', monospace;
-        color: rgba(255, 255, 255, 0.4);
-        margin-bottom: 8px;
-      }
-      .gallery-card-desc {
-        font-size: 13px;
-        color: rgba(255, 255, 255, 0.6);
-        line-height: 1.5;
-      }
-    </style>
-    <div class="gallery-container">
-      <h1 class="gallery-title">Shader Gallery</h1>
-      <div class="gallery-grid">
-        ${cards.map(c => `
-          <a class="gallery-card" href="?shader=${encodeURIComponent(c.name)}">
-            <div class="gallery-card-title">${esc(c.title)}</div>
-            ${c.title !== c.name ? `<div class="gallery-card-name">${esc(c.name)}</div>` : ''}
-            ${c.description ? `<div class="gallery-card-desc">${esc(c.description)}</div>` : ''}
-          </a>
-        `).join('')}
-      </div>
-    </div>
-  `;
+  rootContainer.innerHTML = renderGalleryHTML(
+    cards,
+    (c) => `?shader=${encodeURIComponent(c.name)}`,
+  );
 }
 
 // Start when DOM is ready

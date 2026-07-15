@@ -44,7 +44,6 @@ describe('node entry parity', () => {
 
   it('browser-only APIs throw a clear error instead of crashing on missing DOM', () => {
     expect(() => nodeEntry.mount(null as any, null as any)).toThrow(/browser-only/);
-    expect(() => new (nodeEntry.App as any)()).toThrow(/browser-only/);
-    expect(() => (nodeEntry.createLayout as any)()).toThrow(/browser-only/);
+    expect(() => nodeEntry.loadDemo()).toThrow(/browser-only/);
   });
 });

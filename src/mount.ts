@@ -45,6 +45,11 @@ export interface MountOptions {
   startPaused?: boolean;
   /** Override whether iMouse.zw stays positive after release (sticky mouse). */
   stickyMouse?: boolean;
+  /**
+   * Author mode (dev server): always show the full toolbar (screenshot,
+   * record, export). Viewer chrome settings apply to published output only.
+   */
+  authorTools?: boolean;
 }
 
 /** Consumer-facing options (everything except `project`, which is loaded by the caller). */
@@ -57,6 +62,12 @@ export interface MountHandle {
   readonly isPaused: boolean;
   setUniform(name: string, value: UniformValue): void;
   getUniform(name: string): UniformValue | undefined;
+  /**
+   * Live-recompile one pass (or 'common') with new GLSL source.
+   * On failure the previous shader keeps running and the error is returned.
+   * This is the channel <shader-editor> uses; custom editors can too.
+   */
+  recompile(passName: 'common' | PassName, source: string): RecompileResult;
   destroy(): void;
 }
 
@@ -92,13 +103,46 @@ export function mount(el: HTMLElement, options: MountOptions): MountHandle {
   // Scope theme to this container (not document.documentElement)
   el.setAttribute('data-theme', project.theme);
 
+  // Revert every host-element mutation on destroy, so a destroyed-then-
+  // reused element carries no stale attributes
+  const cleanupHost = () => {
+    el.classList.remove('unstyled');
+    el.removeAttribute('data-theme');
+  };
+
+  const authorTools = !!options.authorTools;
+
   // Multi-view project
   if (isMultiViewProject(project)) {
-    return mountMultiView(el, project, pixelRatio);
+    return mountMultiView(el, project, pixelRatio, cleanupHost, authorTools);
   }
 
   // Single-view project
-  return mountSingleView(el, project, pixelRatio);
+  return mountSingleView(el, project, pixelRatio, cleanupHost, authorTools);
+}
+
+/** Recompile one pass (or common) through the app's engine. */
+function makeRecompileHandler(app: App) {
+  return (passName: 'common' | PassName, newSource: string): RecompileResult => {
+    const engine = app.getEngine();
+    if (!engine) {
+      return { success: false, error: 'Engine not initialized' };
+    }
+
+    if (passName === 'common') {
+      const result = engine.recompileCommon(newSource);
+      if (result.success) {
+        return { success: true };
+      }
+      const firstError = result.errors[0];
+      return {
+        success: false,
+        error: firstError ? `${firstError.passName}: ${firstError.error}` : 'Unknown error',
+      };
+    }
+
+    return engine.recompilePass(passName, newSource);
+  };
 }
 
 function createHandle(app: App, destroy: () => void): MountHandle {
@@ -109,6 +153,7 @@ function createHandle(app: App, destroy: () => void): MountHandle {
     get isPaused() { return app.getPaused(); },
     setUniform: (name, value) => app.setUniformValue(name, value),
     getUniform: (name) => app.getUniformValue(name),
+    recompile: makeRecompileHandler(app),
     destroy,
   };
 }
@@ -117,6 +162,8 @@ function mountSingleView(
   el: HTMLElement,
   project: ShaderProject,
   pixelRatio: number,
+  cleanupHost: () => void,
+  authorTools: boolean,
 ): MountHandle {
   const layout = createLayout(project.layout, {
     container: el,
@@ -129,30 +176,12 @@ function mountSingleView(
     pixelRatio,
     skipUniformsPanel: false,
     skipPlaybackControls: false,
+    authorTools,
   });
 
   // Wire up recompile handler (split, tabbed layouts)
   if (layout.setRecompileHandler) {
-    layout.setRecompileHandler((passName: 'common' | PassName, newSource: string): RecompileResult => {
-      const engine = app.getEngine();
-      if (!engine) {
-        return { success: false, error: 'Engine not initialized' };
-      }
-
-      if (passName === 'common') {
-        const result = engine.recompileCommon(newSource);
-        if (result.success) {
-          return { success: true };
-        }
-        const firstError = result.errors[0];
-        return {
-          success: false,
-          error: firstError ? `${firstError.passName}: ${firstError.error}` : 'Unknown error',
-        };
-      }
-
-      return engine.recompilePass(passName, newSource);
-    });
+    layout.setRecompileHandler(makeRecompileHandler(app));
   }
 
   // Wire up uniform handler (split, tabbed layouts)
@@ -172,6 +201,7 @@ function mountSingleView(
   return createHandle(app, () => {
     app.dispose();
     layout.dispose();
+    cleanupHost();
   });
 }
 
@@ -179,6 +209,10 @@ function mountMultiView(
   el: HTMLElement,
   project: MultiViewProject,
   pixelRatio: number,
+  cleanupHost: () => void,
+  // Multi-view uses MultiViewControls; author toolbar integration is a
+  // follow-up (multi-view export/record are unsupported anyway).
+  _authorTools: boolean,
 ): MountHandle {
   const viewNames = project.views.map(v => v.name);
 
@@ -217,5 +251,6 @@ function mountMultiView(
     mvControls.dispose();
     app.dispose();
     layout.dispose();
+    cleanupHost();
   });
 }

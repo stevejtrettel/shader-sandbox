@@ -1,5 +1,14 @@
 # shader-sandbox Fix Plan
 
+> **Status (2026-07-15): COMPLETE.** All stages landed, including the items
+> once deferred here: the API trim, element split, and README truth pass
+> shipped as the 0.3.0 redesign — see `DESIGN.md` (the current reference).
+> Still parked (tracked in DESIGN.md "Deliberately out of scope"):
+> panel CSS merge, `readonly` editor, multi-view export, and interaction
+> recording (capture a live mouse/touch trace, replay it through the
+> deterministic OfflineRenderer).
+> This file and `CODE_AUDIT.md` are kept as historical records.
+
 Staged remediation of the findings in [CODE_AUDIT.md](CODE_AUDIT.md). IDs (E1, L1, A4, X3, C1, P1, …) reference that document.
 
 **Ordering logic:** hygiene first (shrinks everything after), then the silent-failure bugs (small, independent, each gets a regression test), then recording/export (needs one structural decision), then consolidation of already-diverged duplicates, then the two App.ts extractions that make the codebase safe to extend, and only then the README truth pass (docs are written once, after behavior has settled).

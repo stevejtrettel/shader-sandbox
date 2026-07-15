@@ -46,6 +46,13 @@ export interface AppOptions {
    * Required when project is a MultiViewProject.
    */
   viewContainers?: Map<string, HTMLElement>;
+
+  /**
+   * Author mode (dev server): always show the full toolbar — play/pause,
+   * reset, screenshot, record, export — regardless of the project's viewer
+   * chrome settings. `controls`/`stats`/`playback` govern viewers only.
+   */
+  authorTools?: boolean;
 }
 
 /**

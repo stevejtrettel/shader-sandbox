@@ -34,7 +34,8 @@ async function main() {
       root.classList.add('dev-padded');
     }
 
-    const handle = mount(root, { project });
+    // Dev server = author mode: full toolbar regardless of viewer chrome config
+    const handle = mount(root, { project, authorTools: true });
 
     // Expose for debugging
     (window as any).handle = handle;

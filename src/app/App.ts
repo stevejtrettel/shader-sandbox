@@ -4,7 +4,7 @@
  * Coordinates one or more ShaderViews with shared:
  *  - Animation loop (requestAnimationFrame)
  *  - Playback controls (play/pause/reset)
- *  - Stats panel, Recorder, UniformsPanel
+ *  - Stats panel, UniformsPanel, screenshot/recording panels
  *  - Script hooks (setup/onFrame)
  *  - Keyboard shortcuts
  *  - Visibility observer (auto-pause when off-screen)
@@ -34,12 +34,13 @@ import {
 import { UniformsPanel } from '../uniforms/UniformsPanel';
 import { AppOptions, MouseState } from './types';
 import { exportHTML as exportHTMLFile } from './exportHTML';
-import { Recorder } from './Recorder';
 import { StatsPanel } from './StatsPanel';
+import { timestampString, downloadBlob } from './dom';
 import { PlaybackControls } from './PlaybackControls';
 import { ScreenshotPanel } from './ScreenshotPanel';
-import { RecordingPanel, RecordingRequest } from './RecordingPanel';
-import { Mp4Encoder } from './Mp4Encoder';
+import { RecordingPanel } from './RecordingPanel';
+import { Transport } from './Transport';
+import { OfflineRenderer } from './OfflineRenderer';
 
 export class App {
   private container: HTMLElement;
@@ -49,8 +50,8 @@ export class App {
   private isMultiView: boolean;
 
   private animationId: number | null = null;
-  private startTime: number = 0;
-  private pausedElapsedTime: number = 0;
+  private transport = new Transport();
+  private offline!: OfflineRenderer;
   private disposed: boolean = false;
 
   // Stats panel (null when controls are disabled)
@@ -61,7 +62,6 @@ export class App {
 
   /** Notified whenever pause state changes (multi-view panel syncs its icon here). */
   onPauseChanged?: (paused: boolean) => void;
-  private isPaused: boolean = false;
   private _pauseAfterFirstFrame: boolean = false;
 
   // Visibility observer (auto-pause when off-screen)
@@ -77,9 +77,6 @@ export class App {
   private _lastOnFrameTime: number | null = null;
   private _insideScriptSet: boolean = false;
   private static readonly MAX_SCRIPT_ERRORS = 10;
-
-  // Recording
-  private recorder: Recorder;
 
   // Keyboard shortcut handlers (stored for cleanup in dispose)
   private globalKeyHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -147,15 +144,35 @@ export class App {
     // Create coordinator-level components
     // =========================================================================
 
-    this.recorder = new Recorder(this.primaryView.canvas, this.container, this.project.root);
+    this.offline = new OfflineRenderer({
+      view: this.primaryView,
+      transport: this.transport,
+      hasBufferPasses: () => this.hasBufferPasses(),
+      hasOnFrameScript: () => !!this.project.script?.onFrame,
+      runOnFrame: (time, deltaTime, frame) => {
+        if (this.scriptAPI && this.project.script?.onFrame) {
+          try { this.project.script.onFrame(this.scriptAPI, time, deltaTime, frame); } catch { /* ignore */ }
+        }
+      },
+      runSetup: () => this.runSetup(true, false),
+      runSetupOrThrow: () => {
+        if (this.scriptAPI && this.project.script?.setup) {
+          this.project.script.setup(this.scriptAPI, { isRestore: true });
+        }
+      },
+      notifyPauseState: (paused) => this.notifyPauseState(paused),
+    });
 
     // Resolve UI fields. Explicit per-field values always win; otherwise each
     // falls back to the optional `controls` master, then to its own default.
     // - stats/playback default off — opt in with `controls: true` or per-field.
     // - uniformsUI defaults to 'panel' regardless of `controls`; the panel
     //   only renders when at least one uniform has a UI control (guard below).
+    // - authorTools (dev server) forces the full toolbar independent of all
+    //   viewer chrome settings: authors never edit config to reach their tools.
+    const authorTools = !!opts.authorTools;
     const stats = this.project.stats ?? this.project.controls ?? false;
-    const playback = this.project.playback ?? this.project.controls ?? false;
+    const playback = authorTools || (this.project.playback ?? this.project.controls ?? false);
     const uniformsUI: 'panel' | 'inline' | 'off' = this.project.uniformsUI ?? 'panel';
     const showUniforms = uniformsUI !== 'off';
     const uniformsCollapsible = uniformsUI === 'panel';
@@ -176,7 +193,7 @@ export class App {
           if (view === this.primaryView) {
             this.statsPanel?.updateResolution(w, h);
           }
-          if (this.isPaused) {
+          if (this.transport.isPaused) {
             const crossViewStates = this.collectCrossViewStates();
             for (const v of this.views.values()) {
               v.step(0, crossViewStates);
@@ -187,49 +204,33 @@ export class App {
 
       // Wire context restored for all views
       for (const view of this.views.values()) {
-        view.onContextRestored = () => {
-          if (this.scriptAPI && this.project.script?.setup) {
-            try {
-              this.project.script.setup(this.scriptAPI, { isRestore: true });
-            } catch (e) {
-              console.error('script.js setup() threw during context restore:', e);
-              this.primaryView.runtimeErrorOverlay.showError('setup', e);
-            }
-          }
-        };
+        view.onContextRestored = () => this.runSetup(true);
       }
     } else {
       this.primaryView.onResize = (w, h) => {
         this.statsPanel?.updateResolution(w, h);
-        this.startTime = performance.now() / 1000;
-        this.pausedElapsedTime = 0;
+        this.transport.reset();
         // Re-render when resized while paused so the canvas isn't stale
-        if (this.isPaused) {
+        if (this.transport.isPaused) {
           this.primaryView.step(0);
         }
       };
 
       this.primaryView.onContextRestored = () => {
-        if (this.scriptAPI && this.project.script?.setup) {
-          try {
-            this.project.script.setup(this.scriptAPI, { isRestore: true });
-          } catch (e) {
-            console.error('script.js setup() threw during context restore:', e);
-            this.primaryView.runtimeErrorOverlay.showError('setup', e);
-          }
-        }
+        this.runSetup(true);
         this.reset();
         this.start();
       };
     }
 
-    // Create playback controls if enabled
+    // Create playback controls if enabled. Viewers get play/pause + reset;
+    // author mode adds screenshot / record / export.
     if (playback && !opts.skipPlaybackControls) {
       this.playbackControls = new PlaybackControls(this.container, {
+        authorTools,
         onTogglePlayPause: () => this.togglePlayPause(),
         onReset: () => this.reset(),
         onScreenshot: () => this.openScreenshotPanel(),
-        onToggleRecording: () => this.toggleRecording(),
         onExportHTML: () => this.exportHTML(),
         onRender: () => this.openRecordingPanel(),
       });
@@ -253,15 +254,7 @@ export class App {
     // Initialize script API and run setup hook
     if (this.project.script) {
       this.initScriptAPI();
-
-      if (this.project.script.setup && this.scriptAPI) {
-        try {
-          this.project.script.setup(this.scriptAPI, { isRestore: false });
-        } catch (e) {
-          console.error('script.js setup() threw:', e);
-          this.primaryView.runtimeErrorOverlay.showError('setup', e);
-        }
-      }
+      this.runSetup(false);
     }
 
     // Create floating uniforms panel (also requires at least one uniform with a UI control)
@@ -444,7 +437,7 @@ export class App {
       return;
     }
 
-    this.startTime = performance.now() / 1000;
+    this.transport.reset();
     this.animationId = requestAnimationFrame(this.animate);
   }
 
@@ -510,7 +503,7 @@ export class App {
 
     this.animationId = requestAnimationFrame(this.animate);
 
-    if (this.isPaused || !this.isVisible) {
+    if (this.transport.isPaused || !this.isVisible) {
       return;
     }
 
@@ -520,7 +513,7 @@ export class App {
     }
 
     const currentTimeSec = currentTimeMs / 1000;
-    const elapsedTime = currentTimeSec - this.startTime;
+    const elapsedTime = this.transport.elapsed();
 
     this.statsPanel?.update(currentTimeSec, elapsedTime);
 
@@ -539,7 +532,7 @@ export class App {
     // startPaused: render one frame then pause
     if (this._pauseAfterFirstFrame) {
       this._pauseAfterFirstFrame = false;
-      this.isPaused = true;
+      this.transport.forcePaused(true);
       this.notifyPauseState(true);
     }
   };
@@ -549,15 +542,7 @@ export class App {
   // ===========================================================================
 
   togglePlayPause(): void {
-    if (!this.isPaused) {
-      // Pausing — record current elapsed time so we can resume accurately
-      this.pausedElapsedTime = performance.now() / 1000 - this.startTime;
-    } else {
-      // Resuming — adjust startTime so elapsed time continues from where we left off
-      this.startTime = performance.now() / 1000 - this.pausedElapsedTime;
-    }
-    this.isPaused = !this.isPaused;
-    this.notifyPauseState(this.isPaused);
+    this.notifyPauseState(this.transport.toggle());
   }
 
   private notifyPauseState(paused: boolean): void {
@@ -565,13 +550,26 @@ export class App {
     this.onPauseChanged?.(paused);
   }
 
+  /**
+   * Run the script setup hook. Errors are logged; the runtime overlay is
+   * shown only for interactive contexts (not offline render/restore paths).
+   */
+  private runSetup(isRestore: boolean, showOverlay = true): void {
+    if (!this.scriptAPI || !this.project.script?.setup) return;
+    try {
+      this.project.script.setup(this.scriptAPI, { isRestore });
+    } catch (e) {
+      console.error(`script.js setup() threw${isRestore ? ' during restore' : ''}:`, e);
+      if (showOverlay) this.primaryView.runtimeErrorOverlay.showError('setup', e);
+    }
+  }
+
   getPaused(): boolean {
-    return this.isPaused;
+    return this.transport.isPaused;
   }
 
   reset(): void {
-    this.startTime = performance.now() / 1000;
-    this.pausedElapsedTime = 0;
+    this.transport.reset();
     this._lastOnFrameTime = null;
     this.statsPanel?.reset();
     for (const view of this.views.values()) {
@@ -586,35 +584,16 @@ export class App {
   /** Quick screenshot at current canvas size (S key shortcut). */
   screenshot(): void {
     const folderName = this.project.root.split('/').pop() || 'shader';
-    const now = new Date();
-    const timestamp = now.getFullYear().toString() +
-      (now.getMonth() + 1).toString().padStart(2, '0') +
-      now.getDate().toString().padStart(2, '0') + '-' +
-      now.getHours().toString().padStart(2, '0') +
-      now.getMinutes().toString().padStart(2, '0') +
-      now.getSeconds().toString().padStart(2, '0');
-
-    const filename = `shadertoy-${folderName}-${timestamp}.png`;
+    const filename = `shadertoy-${folderName}-${timestampString()}.png`;
 
     this.primaryView.canvas.toBlob((blob) => {
       if (!blob) {
         console.error('Failed to create screenshot blob');
         return;
       }
-
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      link.click();
-      URL.revokeObjectURL(url);
-
+      downloadBlob(blob, filename);
       console.log(`Screenshot saved: ${filename}`);
     }, 'image/png');
-  }
-
-  toggleRecording(): void {
-    this.recorder.toggle(this.isPaused, () => this.togglePlayPause());
   }
 
   /** Check if this shader has feedback buffer passes. */
@@ -627,18 +606,21 @@ export class App {
 
   /** Get current elapsed shader time. */
   private getCurrentTime(): number {
-    return performance.now() / 1000 - this.startTime;
+    return this.transport.elapsed();
   }
 
   // ===========================================================================
   // Screenshot Panel
   // ===========================================================================
 
+  /** The currently open screenshot/recording panel, closed on dispose. */
+  private activePanel: { close(): void } | null = null;
+
   openScreenshotPanel(): void {
     // Remember pause state so we can restore it when panel closes
-    const wasPaused = this.isPaused;
+    const wasPaused = this.transport.isPaused;
 
-    new ScreenshotPanel(
+    this.activePanel = new ScreenshotPanel(
       this.container,
       this.primaryView.canvas.width,
       this.primaryView.canvas.height,
@@ -651,105 +633,20 @@ export class App {
           this.primaryView.presentToScreen();
         },
 
-        renderPreviewStepped: async (time, fps, onProgress) => {
-          const engine = this.primaryView.engine;
-          engine.reset();
-          if (this.scriptAPI && this.project.script?.setup) {
-            try { this.project.script.setup(this.scriptAPI, { isRestore: true }); } catch { /* ignore */ }
-          }
+        renderPreviewStepped: (time, fps, onProgress) =>
+          this.offline.renderPreviewStepped(time, fps, onProgress),
 
-          const totalFrames = Math.ceil(time * fps);
-          for (let f = 0; f <= totalFrames; f++) {
-            this.stepForRender(f, fps, 0);
-            if (f % 100 === 0) {
-              onProgress(f, totalFrames);
-              await new Promise(r => setTimeout(r, 0));
-            }
-          }
-          this.primaryView.presentToScreen();
-          onProgress(totalFrames, totalFrames);
-          return true;
-        },
-
-        captureScreenshot: async (opts) => {
-          const canvas = this.primaryView.canvas;
-          const engine = this.primaryView.engine;
-          const origW = canvas.width;
-          const origH = canvas.height;
-
-          try {
-            // Resize to target resolution
-            canvas.width = opts.width;
-            canvas.height = opts.height;
-            engine.resize(opts.width, opts.height);
-            engine.reset();
-
-            if (this.scriptAPI && this.project.script?.setup) {
-              try { this.project.script.setup(this.scriptAPI, { isRestore: true }); } catch { /* ignore */ }
-            }
-
-            if (opts.hasBuffers) {
-              // Step through all frames to target time
-              const fps = 60;
-              const totalFrames = Math.ceil(opts.time * fps);
-              for (let f = 0; f <= totalFrames; f++) {
-                this.stepForRender(f, fps, 0);
-                if (f % 100 === 0) {
-                  opts.onProgress(f, totalFrames);
-                  await new Promise(r => setTimeout(r, 0));
-                }
-              }
-              opts.onProgress(totalFrames, totalFrames);
-            } else {
-              // Jump directly
-              engine.step(opts.time, [0, 0, 0, 0], false);
-            }
-
-            this.primaryView.presentToScreen();
-
-            // Capture
-            return await new Promise<Blob>((resolve, reject) => {
-              canvas.toBlob(
-                (b) => b ? resolve(b) : reject(new Error('Failed to capture')),
-                'image/png',
-              );
-            });
-          } finally {
-            // Restore original canvas size
-            canvas.width = origW;
-            canvas.height = origH;
-            engine.resize(origW, origH);
-            engine.reset();
-            if (this.scriptAPI && this.project.script?.setup) {
-              try { this.project.script.setup(this.scriptAPI, { isRestore: true }); } catch { /* ignore */ }
-            }
-            // Re-render preview at current slider time so canvas isn't blank
-            if (!this.hasBufferPasses()) {
-              const currentSliderTime = this.getCurrentTime(); // approximate
-              this.primaryView.engine.step(currentSliderTime, [0, 0, 0, 0], false);
-              this.primaryView.presentToScreen();
-            }
-          }
-        },
+        captureScreenshot: (opts) => this.offline.captureScreenshot(opts),
 
         getCurrentTime: () => this.getCurrentTime(),
         hasBufferPasses: () => this.hasBufferPasses(),
         setUniformValue: (name, value) => this.setUniformValue(name, value),
 
-        pause: () => {
-          // Record current elapsed time and pause
-          if (!this.isPaused) {
-            this.pausedElapsedTime = performance.now() / 1000 - this.startTime;
-          }
-          this.isPaused = true;
-        },
+        pause: () => this.transport.pause(),
 
         resume: () => {
           // Restore original pause state
-          if (!wasPaused) {
-            this.startTime = performance.now() / 1000 - this.pausedElapsedTime;
-            this.isPaused = false;
-          }
+          if (!wasPaused) this.transport.resume();
         },
       },
     );
@@ -760,82 +657,17 @@ export class App {
   // ===========================================================================
 
   openRecordingPanel(): void {
-    new RecordingPanel(
+    this.activePanel = new RecordingPanel(
       this.container,
       this.primaryView.canvas.width,
       this.primaryView.canvas.height,
       this.project.uniforms,
       {
-        startRecording: (req) => this.handleRecording(req),
+        startRecording: (req) => this.offline.record(req),
         hasBufferPasses: () => this.hasBufferPasses(),
         setUniformValue: (name, value) => this.setUniformValue(name, value),
       },
     );
-  }
-
-  private handleRecording(req: RecordingRequest): () => void {
-    let cancelled = false;
-    const cancel = () => { cancelled = true; };
-
-    const run = async () => {
-      const canvas = this.primaryView.canvas;
-      const engine = this.primaryView.engine;
-      const origW = canvas.width;
-      const origH = canvas.height;
-      const wasPaused = this.isPaused;
-
-      try {
-        this.isPaused = true;
-
-        canvas.width = req.width;
-        canvas.height = req.height;
-        engine.resize(req.width, req.height);
-        engine.reset();
-
-        if (this.scriptAPI && this.project.script?.setup) {
-          this.project.script.setup(this.scriptAPI, { isRestore: true });
-        }
-
-        // Warm-up phase: step to startTime if needed
-        if (req.startTime > 0) {
-          const warmupFrames = Math.ceil(req.startTime * req.fps);
-          for (let f = 0; f < warmupFrames; f++) {
-            if (cancelled) return;
-            this.stepForRender(f, req.fps, 0);
-            if (f % 100 === 0) {
-              req.onProgress('Warming up', f, warmupFrames);
-              await new Promise(r => setTimeout(r, 0));
-            }
-          }
-        }
-
-        const totalFrames = Math.ceil(req.fps * req.duration);
-
-        if (req.format === 'mp4') {
-          await this.renderMp4Frames(totalFrames, req.fps, req.startTime, req.quality, () => cancelled, (f, t) => req.onProgress('Recording', f, t));
-        } else if (req.format === 'webm') {
-          await this.renderWebmFrames(totalFrames, req.fps, req.startTime, () => cancelled, (f, t) => req.onProgress('Recording', f, t));
-        } else {
-          await this.renderPngFrames(totalFrames, req.fps, req.startTime, () => cancelled, (f, t) => req.onProgress('Recording', f, t));
-        }
-
-        if (!cancelled) req.onComplete();
-      } catch (e) {
-        if (!cancelled) req.onError(e instanceof Error ? e : new Error(String(e)));
-      } finally {
-        canvas.width = origW;
-        canvas.height = origH;
-        engine.resize(origW, origH);
-        engine.reset();
-        if (this.scriptAPI && this.project.script?.setup) {
-          try { this.project.script.setup(this.scriptAPI, { isRestore: true }); } catch { /* ignore */ }
-        }
-        this.isPaused = wasPaused;
-      }
-    };
-
-    run();
-    return cancel;
   }
 
   // ===========================================================================
@@ -848,144 +680,6 @@ export class App {
       return;
     }
     exportHTMLFile(this.project as ShaderProject, this.primaryView.engine);
-  }
-
-  // ===========================================================================
-  // Render Helpers
-  // ===========================================================================
-
-  private async renderPngFrames(
-    totalFrames: number, fps: number, startTime: number,
-    isCancelled: () => boolean,
-    onProgress: (frame: number, total: number) => void,
-  ): Promise<void> {
-    let dirHandle: FileSystemDirectoryHandle | null = null;
-    if ('showDirectoryPicker' in window) {
-      try {
-        dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
-      } catch { /* user cancelled */ }
-    }
-
-    for (let frame = 0; frame < totalFrames; frame++) {
-      if (isCancelled()) return;
-
-      this.stepForRender(frame, fps, startTime);
-      this.primaryView.presentToScreen();
-
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        this.primaryView.canvas.toBlob((b) => b ? resolve(b) : reject(new Error('Failed to capture frame')), 'image/png');
-      });
-
-      const filename = `frame_${String(frame).padStart(5, '0')}.png`;
-      if (dirHandle) {
-        const fh = await dirHandle.getFileHandle(filename, { create: true });
-        const w = await fh.createWritable();
-        await w.write(blob);
-        await w.close();
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = filename; a.click();
-        URL.revokeObjectURL(url);
-      }
-
-      onProgress(frame + 1, totalFrames);
-      if (frame % 10 === 0) await new Promise(r => setTimeout(r, 0));
-    }
-  }
-
-  private async renderWebmFrames(
-    totalFrames: number, fps: number, startTime: number,
-    isCancelled: () => boolean,
-    onProgress: (frame: number, total: number) => void,
-  ): Promise<void> {
-    const canvas = this.primaryView.canvas;
-    const videoCanvas = document.createElement('canvas');
-    videoCanvas.width = canvas.width;
-    videoCanvas.height = canvas.height;
-    const ctx = videoCanvas.getContext('2d')!;
-
-    const stream = videoCanvas.captureStream(0);
-    const recorder = new MediaRecorder(stream, {
-      mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 8_000_000,
-    });
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-    const done = new Promise<void>(r => { recorder.onstop = () => r(); });
-    recorder.start();
-
-    for (let frame = 0; frame < totalFrames; frame++) {
-      if (isCancelled()) { recorder.stop(); await done; return; }
-
-      this.stepForRender(frame, fps, startTime);
-      this.primaryView.presentToScreen();
-      ctx.drawImage(canvas, 0, 0);
-
-      const track = stream.getVideoTracks()[0] as any;
-      if (track?.requestFrame) track.requestFrame();
-
-      onProgress(frame + 1, totalFrames);
-      if (frame % 10 === 0) await new Promise(r => setTimeout(r, 0));
-    }
-
-    recorder.stop();
-    await done;
-
-    const blob = new Blob(chunks, { type: 'video/webm' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `render_${canvas.width}x${canvas.height}_${fps}fps.webm`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  private async renderMp4Frames(
-    totalFrames: number, fps: number, startTime: number,
-    quality: string,
-    isCancelled: () => boolean,
-    onProgress: (frame: number, total: number) => void,
-  ): Promise<void> {
-    const canvas = this.primaryView.canvas;
-    const encoder = new Mp4Encoder(canvas.width, canvas.height, fps, quality);
-    await encoder.init();
-
-    try {
-      for (let frame = 0; frame < totalFrames; frame++) {
-        if (isCancelled()) { encoder.dispose(); return; }
-
-        this.stepForRender(frame, fps, startTime);
-        this.primaryView.presentToScreen();
-
-        await encoder.addFrame(canvas);
-
-        onProgress(frame + 1, totalFrames);
-        if (frame % 10 === 0) await new Promise(r => setTimeout(r, 0));
-      }
-
-      const blob = await encoder.finish();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `render_${canvas.width}x${canvas.height}_${fps}fps.mp4`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      encoder.dispose();
-      throw e;
-    }
-  }
-
-  private stepForRender(frame: number, fps: number, startTime: number): void {
-    const time = startTime + frame / fps;
-    const deltaTime = 1 / fps;
-
-    if (this.scriptAPI && this.project.script?.onFrame) {
-      try { this.project.script.onFrame(this.scriptAPI, time, deltaTime, frame); } catch { /* ignore */ }
-    }
-
-    this.primaryView.engine.step(time, [0, 0, 0, 0], false);
   }
 
   // ===========================================================================
@@ -1044,12 +738,15 @@ export class App {
     for (const view of this.views.values()) {
       view.dispose();
     }
-    this.recorder.dispose();
     this.playbackControls?.dispose();
     this.intersectionObserver.disconnect();
     if (this.globalKeyHandler) this.container.removeEventListener('keydown', this.globalKeyHandler);
     if (this.controlsKeyHandler) this.container.removeEventListener('keydown', this.controlsKeyHandler);
-    this.uniformsPanel?.destroy();
+    this.uniformsPanel?.dispose();
     this.statsPanel?.dispose();
+    // Close any open screenshot/recording panel so its callbacks can't
+    // drive a disposed engine
+    try { this.activePanel?.close(); } catch { /* already closed */ }
+    this.activePanel = null;
   }
 }

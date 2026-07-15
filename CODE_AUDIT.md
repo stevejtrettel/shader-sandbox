@@ -1,5 +1,12 @@
 # shader-sandbox Code Audit — 2026-07-15
 
+> **Resolution note (same day):** every finding below was fixed, consciously
+> deferred, or made obsolete by the 0.3.0 redesign (`DESIGN.md`). The
+> `exportHTML` drift class was eliminated structurally (exports embed the
+> engine's compiled sources); `live-app`, the realtime Recorder, and the
+> dead files are gone. Kept as a historical record — file:line references
+> describe the pre-fix code.
+
 Five parallel deep reviews (engine, app/UI, recording/export, loaders/entry-points, CLI/layouts/uniforms) covering all ~16k lines of source. Every finding below carries a file:line reference and was verified against the actual code; the highest-impact items were independently re-confirmed. Findings are grouped by theme, deduplicated across reviewers, and ordered by severity within each section.
 
 **Overall assessment:** The architecture is fundamentally sound — the FileLoader/loadProjectCore split, the App/ShaderView division, the MediaManager/UniformManager extraction from ShaderEngine, and std140 packing are all clean and correct. GL resource disposal, blob URL hygiene, and listener cleanup are mostly disciplined. The debt clusters in four places:

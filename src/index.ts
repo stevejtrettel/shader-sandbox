@@ -1,20 +1,18 @@
 /**
- * Shadertoy Runner - Public API
+ * shader-sandbox — Public API
  *
- * This module exports everything needed to create a shader playground.
- * Supports both single-view and multi-view shader projects.
+ * The supported surface is deliberately small (see DESIGN.md):
+ *   - mount(el, options): mount a loaded project into a DOM element
+ *   - loadDemo(...): load a project from bundled file maps (Vite glob)
+ *   - project types and type guards
+ *
+ * The custom elements (<shader-canvas>, <shader-editor>, <shader-sandbox>)
+ * live in 'shader-sandbox/runtime'. Everything else in src/ is internal.
  */
 
 // Core API
 export { mount } from './mount';
 export type { MountOptions, MountPresentationOptions, MountHandle } from './mount';
-
-// Components
-export { App } from './app/App';
-export { ShaderView } from './app/ShaderView';
-export { MultiViewControls } from './app/MultiViewControls';
-export { createLayout, applyTheme, createMultiViewLayout } from './layouts';
-export { GridLayout } from './layouts/GridLayout';
 export { loadDemo } from './project/loaderHelper';
 
 // Types
@@ -34,16 +32,5 @@ export type {
   ViewEntry,
   CrossViewState,
 } from './project/types';
+export type { LayoutMode } from './layouts/types';
 export { isArrayUniform, isStructArrayUniform, isAnyUBOUniform, isMultiViewProject, isMultiViewConfig } from './project/types';
-
-export type {
-  RecompileResult,
-  BaseLayout,
-  LayoutMode,
-  LayoutOptions,
-  RecompileHandler,
-  UniformChangeHandler,
-  // Multi-view layout types
-  MultiViewLayout,
-  MultiViewLayoutOptions,
-} from './layouts/types';

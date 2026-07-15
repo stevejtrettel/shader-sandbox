@@ -151,13 +151,19 @@
   transform: scale(0.95);
 }
 
-/* Control buttons grid - 4x2 with menu button as last cell */
+/* Viewer bar (compact): Play/Pause, Reset, Menu in a single row */
+.controls-grid.compact {
+  grid-template-columns: 44px 44px 44px;
+  grid-template-rows: 44px;
+}
+
+/* Control buttons grid - 3x2 with menu button as last cell (author mode) */
 .controls-grid {
   position: absolute;
   bottom: 0;
   right: 0;
   display: grid;
-  grid-template-columns: 44px 44px 44px 44px;
+  grid-template-columns: 44px 44px 44px;
   grid-template-rows: 44px 44px;
   gap: 6px;
   opacity: 0;
@@ -438,45 +444,6 @@
 
 .context-lost-reload:active {
   transform: scale(0.98);
-}
-
-/* ===== Recording Indicator ===== */
-.recording-indicator {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: rgba(220, 38, 38, 0.85);
-  border-radius: var(--glass-radius-sm);
-  border: 1px solid rgba(255, 100, 100, 0.3);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: var(--glass-shadow-sm);
-}
-
-.recording-dot {
-  width: 8px;
-  height: 8px;
-  background: white;
-  border-radius: 50%;
-  animation: recording-pulse 1s ease-in-out infinite;
-}
-
-@keyframes recording-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.recording-text {
-  color: white;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
 }
 
 /* ===== Media Permission Banner ===== */

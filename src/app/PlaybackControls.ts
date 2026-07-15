@@ -6,10 +6,11 @@
  */
 
 export interface PlaybackCallbacks {
+  /** Author mode: include screenshot / record / export buttons. */
+  authorTools: boolean;
   onTogglePlayPause: () => void;
   onReset: () => void;
   onScreenshot: () => void;
-  onToggleRecording: () => void;
   onExportHTML: () => void;
   onRender: () => void;
 }
@@ -75,17 +76,6 @@ export class PlaybackControls {
     `;
     screenshotButton.addEventListener('click', () => callbacks.onScreenshot());
 
-    // Record button
-    const recordButton = document.createElement('button');
-    recordButton.className = 'control-button';
-    recordButton.title = 'Record Video';
-    recordButton.innerHTML = `
-      <svg viewBox="0 0 16 16">
-        <circle cx="8" cy="8" r="5"/>
-      </svg>
-    `;
-    recordButton.addEventListener('click', () => callbacks.onToggleRecording());
-
     // Export button
     const exportButton = document.createElement('button');
     exportButton.className = 'control-button';
@@ -98,13 +88,13 @@ export class PlaybackControls {
     `;
     exportButton.addEventListener('click', () => callbacks.onExportHTML());
 
-    // Render button
+    // Record button — opens the offline recording panel (MP4/WebM/PNG)
     const renderButton = document.createElement('button');
     renderButton.className = 'control-button';
-    renderButton.title = 'Record';
+    renderButton.title = 'Record Video';
     renderButton.innerHTML = `
       <svg viewBox="0 0 16 16">
-        <path d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h12v2H2v-2z"/>
+        <circle cx="8" cy="8" r="5"/>
       </svg>
     `;
     renderButton.addEventListener('click', () => callbacks.onRender());
@@ -118,18 +108,17 @@ export class PlaybackControls {
     menuButtonInGrid.style.fontWeight = '300';
     menuButtonInGrid.addEventListener('click', () => this.toggleMenu());
 
-    // Add buttons to grid (positioned in 2x4 layout)
-    // Row 1: Play/Pause, Reset, Export, Render
-    // Row 2: Screenshot, Record, —, Menu (close)
+    // Viewer bar: Play/Pause, Reset, Menu (one row).
+    // Author toolbar adds Screenshot, Record, Export (3x2).
     this.controlsGrid.appendChild(this.playPauseButton);
     this.controlsGrid.appendChild(resetButton);
-    this.controlsGrid.appendChild(exportButton);
-    this.controlsGrid.appendChild(renderButton);
-    this.controlsGrid.appendChild(screenshotButton);
-    this.controlsGrid.appendChild(recordButton);
-    // Empty spacer for grid alignment
-    const spacer = document.createElement('div');
-    this.controlsGrid.appendChild(spacer);
+    if (callbacks.authorTools) {
+      this.controlsGrid.appendChild(screenshotButton);
+      this.controlsGrid.appendChild(renderButton);
+      this.controlsGrid.appendChild(exportButton);
+    } else {
+      this.controlsGrid.classList.add('compact');
+    }
     this.controlsGrid.appendChild(menuButtonInGrid);
 
     // Add grid and standalone menu button to container
