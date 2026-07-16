@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "title": "Progressive path tracer",
+
+  "resources": {
+    "accum": {
+      "kind": "field",
+      "format": "rgba32f",
+      "size": "view",
+      "init": 0,
+      "resetOn": ["uCamPos", "uCamTarget", "uFov", "uAlbedo", "uRoughness", "uLightIntensity", "resolution"]
+    }
+  },
+
+  "uniforms": {
+    "uFov":            { "value": 40.0, "min": 20.0, "max": 90.0, "label": "Field of view" },
+    "uAlbedo":         { "value": [0.8, 0.5, 0.3], "control": "color", "label": "Sphere color" },
+    "uRoughness":      { "value": 0.2,  "min": 0.0, "max": 1.0 },
+    "uLightIntensity": { "value": 12.0, "min": 0.0, "max": 40.0, "label": "Light" }
+  },
+
+  "controllers": {
+    "camera": {
+      "type": "orbit",
+      "target": [0, 1, 0],
+      "radius": 6,
+      "outputs": { "uCamPos": "position", "uCamTarget": "target" }
+    }
+  },
+
+  "passes": {
+    "trace":   { "shader": "trace.glsl",   "reads": { "accum": "accum" }, "writes": "accum" },
+    "display": { "shader": "display.glsl", "reads": { "accum": "accum" } }
+  },
+
+  "views": {
+    "main": { "pass": "display", "controller": "camera" }
+  },
+
+  "stepsPerFrame": 1
+}

@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "title": "3D reaction-diffusion, three views",
+
+  "resources": {
+    "chem":     { "kind": "volume", "format": "rg32f", "size": [128, 128, 128],
+                  "filter": "nearest", "init": "init.glsl" },
+    "chemView": { "kind": "volume", "format": "rg16f", "size": [128, 128, 128],
+                  "filter": "linear" },
+    "tf":       { "kind": "lut", "size": 256,
+                  "source": { "control": "transferFunction", "label": "Transfer function" } }
+  },
+
+  "uniforms": {
+    "uFeed":     { "value": 0.037,  "min": 0.0,  "max": 0.08, "label": "Feed rate" },
+    "uKill":     { "value": 0.06,   "min": 0.03, "max": 0.07, "label": "Kill rate" },
+    "uDu":       { "value": 0.21,   "min": 0.05, "max": 0.3,  "label": "Diffusion U" },
+    "uDv":       { "value": 0.105,  "min": 0.02, "max": 0.15, "label": "Diffusion V" },
+    "uIso":      { "value": 0.25,   "min": 0.05, "max": 0.6,  "label": "Isolevel" },
+    "uDensity":  { "value": 8.0,    "min": 1.0,  "max": 30.0, "label": "Density scale" },
+    "uSliceZ":   { "value": 0.5,    "min": 0.0,  "max": 1.0,  "label": "Slice depth" }
+  },
+
+  "controllers": {
+    "camera": { "type": "orbit", "radius": 3.0,
+                "outputs": { "uViewProj": "viewProjection", "uEye": "position" } }
+  },
+
+  "passes": {
+    "evolve":    { "shader": "evolve.glsl", "reads": { "chem": "chem" }, "writes": "chem" },
+    "toDisplay": { "shader": "convert.glsl", "reads": { "chem": "chem" }, "writes": "chemView",
+                   "frequency": "frame" },
+
+    "raymarch":  { "shader": "raymarch.glsl",   "reads": { "vol": "chemView", "tf": "tf" } },
+    "isoview":   { "shader": "isosurface.glsl", "reads": { "vol": "chemView" } },
+    "sliceview": { "shader": "slice.glsl",      "reads": { "vol": "chemView", "tf": "tf" } }
+  },
+
+  "options": { "stepsPerFrame": 2 },
+
+  "views": {
+    "density": { "pass": "raymarch",  "controller": "camera" },
+    "surface": { "pass": "isoview",   "controller": "camera" },
+    "slice":   { "pass": "sliceview" }
+  }
+}

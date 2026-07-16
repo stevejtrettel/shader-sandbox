@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "title": "Lorenz flow, one million particles",
+
+  "resources": {
+    "particles": { "kind": "data", "format": "rgba32f", "count": 1048576, "init": "spawn.glsl" },
+    "trail":     { "kind": "field", "format": "rgba16f", "size": "view", "init": 0,
+                   "resetOn": ["uViewProj", "resolution"] }
+  },
+
+  "uniforms": {
+    "uSigma":     { "value": 10.0,  "min": 0.0,  "max": 30.0, "label": "σ" },
+    "uRho":       { "value": 28.0,  "min": 0.0,  "max": 60.0, "label": "ρ" },
+    "uBeta":      { "value": 2.667, "min": 0.0,  "max": 10.0, "label": "β" },
+    "uDt":        { "value": 0.004 },
+    "uLifetime":  { "value": 12.0,  "min": 1.0,  "max": 60.0, "label": "Lifetime" },
+    "uPointSize": { "value": 1.5,   "min": 0.5,  "max": 6.0,  "label": "Point size" },
+    "uDecay":     { "value": 0.96,  "min": 0.8,  "max": 1.0,  "label": "Trail decay" },
+    "uExposure":  { "value": 1.0,   "min": 0.1,  "max": 4.0,  "label": "Exposure" }
+  },
+
+  "controllers": {
+    "camera": {
+      "type": "orbit",
+      "target": [0, 0, 25],
+      "radius": 80,
+      "outputs": { "uViewProj": "viewProjection" }
+    }
+  },
+
+  "passes": {
+    "simulate": { "shader": "simulate.glsl",
+                  "reads": { "particles": "particles" }, "writes": "particles" },
+    "fade":     { "shader": "fade.glsl",
+                  "reads": { "trail": "trail" }, "writes": "trail" },
+    "draw":     { "vertex": "draw.vert.glsl", "fragment": "draw.frag.glsl",
+                  "domain": { "points": "particles" },
+                  "reads": { "particles": "particles" },
+                  "writes": "trail", "write": "modify",
+                  "state": { "blend": "add", "depth": false } },
+    "display":  { "shader": "display.glsl", "reads": { "trail": "trail" } }
+  },
+
+  "schedule": [
+    { "run": "fade", "commit": "trail" },
+    { "repeat": 4, "do": [
+        { "run": "simulate", "commit": "particles" },
+        { "run": "draw" }
+    ]}
+  ],
+
+  "views": {
+    "main": { "pass": "display", "controller": "camera" }
+  }
+}

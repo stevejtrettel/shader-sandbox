@@ -1,5 +1,9 @@
 # shader-sandbox System Design
 
+> The next-generation Standard/Advanced expansion is being designed in
+> [`docs/architecture/`](docs/architecture/README.md). This document remains
+> the historical reference for the completed 0.3.0 publishing redesign.
+
 *Drafted 2026-07-15, after the Stage 0–4 cleanup. This is the reference for
 the 0.3.0 redesign. Everything here was negotiable until it shipped.*
 

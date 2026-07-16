@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "title": "Stable fluids",
+
+  "resources": {
+    "velocity":   { "kind": "field", "format": "rg32f",   "size": [512, 512], "init": 0 },
+    "pressure":   { "kind": "field", "format": "r32f",    "size": [512, 512], "init": 0 },
+    "divergence": { "kind": "field", "format": "r32f",    "size": [512, 512] },
+    "dye":        { "kind": "field", "format": "rgba16f", "size": "view", "filter": "linear", "init": 0 }
+  },
+
+  "uniforms": {
+    "uDt":          { "value": 0.016 },
+    "uSplatForce":  { "value": 6.0,  "min": 0.5,   "max": 20.0, "label": "Splat force" },
+    "uSplatRadius": { "value": 0.02, "min": 0.005, "max": 0.1,  "label": "Brush size" },
+    "uDyeColor":    { "value": [1.0, 0.6, 0.1], "control": "color", "label": "Dye" }
+  },
+
+  "controllers": {
+    "brush": {
+      "type": "drag",
+      "outputs": { "uSplatPos": "position", "uSplatVel": "velocity", "uSplatOn": "active" }
+    }
+  },
+
+  "passes": {
+    "splatVel":   { "shader": "splat-vel.glsl",  "reads": { "field": "velocity" }, "writes": "velocity" },
+    "advectVel":  { "shader": "advect.glsl",     "reads": { "vel": "velocity", "src": "velocity" }, "writes": "velocity" },
+    "measureDiv": { "shader": "divergence.glsl", "reads": { "vel": "velocity" }, "writes": "divergence" },
+    "jacobi":     { "shader": "jacobi.glsl",     "reads": { "p": "pressure", "div": "divergence" }, "writes": "pressure" },
+    "project":    { "shader": "project.glsl",    "reads": { "p": "pressure", "vel": "velocity" }, "writes": "velocity" },
+    "splatDye":   { "shader": "splat-dye.glsl",  "reads": { "field": "dye" }, "writes": "dye" },
+    "advectDye":  { "shader": "advect.glsl",     "reads": { "vel": "velocity", "src": "dye" }, "writes": "dye" },
+
+    "display":    { "shader": "display.glsl",  "reads": { "dye": "dye" } },
+    "divView":    { "shader": "div-view.glsl", "reads": { "div": "divergence" } }
+  },
+
+  "schedule": [
+    { "run": "splatVel",   "commit": "velocity" },
+    { "run": "advectVel",  "commit": "velocity" },
+    { "run": "measureDiv", "commit": "divergence" },
+    { "repeat": 40, "do": [
+        { "run": "jacobi", "commit": "pressure" }
+    ]},
+    { "run": "project",    "commit": "velocity" },
+    { "run": "splatDye" },
+    { "run": "advectDye",  "commit": "dye" }
+  ],
+
+  "views": {
+    "main": { "pass": "display", "controller": "brush" },
+    "div":  { "pass": "divView", "label": "divergence", "hidden": true }
+  }
+}
