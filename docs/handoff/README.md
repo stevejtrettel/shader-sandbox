@@ -85,20 +85,23 @@ and clone it. Then read:
 | `docs/PANELS_GUIDE.md`, `docs/LAYOUTS_GUIDE.md`, `src/panels/`, `src/layouts/` | A composable panel UI |
 | `docs/3D_RENDERING.md`, `docs/VERTEX_SHADERS*.md` | Volumes, custom geometry and vertex shaders |
 | `src/engine/`, `src/project/`, `src/core/`, `src/utils/` | The implementation (about 14,700 lines in total) |
-| `examples/`, `demos/`, `new-demos/` | Roughly 80 projects: the requirements corpus |
+| `examples/`, `demos/`, `new-demos/` | 105 projects: the requirements corpus (see report 2 for which still run) |
 | Branches `rebuild`, `old`, and ten unmerged `claude/*` branches | Possibly more forgotten work |
 
-### D. Reports from this session
+### D. Reports from this session (`docs/handoff/reports/`)
 
-Five exploration agents were started on `webgl-demos` and on branch
-history. When their reports exist they are in `docs/handoff/reports/`.
-If that folder is missing, they were not saved; re-run the exploration.
+Five exploration agents read `webgl-demos` and the branch history. Their
+reports are saved verbatim. They come from reading code; nothing was
+compiled or run, and each report says what was verified versus inferred.
+Treat them as leads to check, not as settled fact.
 
-1. Engine and project model of `webgl-demos`, from the code.
-2. Inventory of every `webgl-demos` project on the capability axes.
-3. Correctness, purity and licensing review of its GLSL library.
-4. Comparison of the two UI layers.
-5. Sweep of all branches in both repos for unmerged work.
+| Report | Headline findings |
+|---|---|
+| `1-webgl-demos-engine.md` | Every pass swaps immediately, so semantics are sequential only (the July design defaults to snapshot). `mathSpace` gives one coordinate frame shared across buffers of different sizes, with the mouse in that frame; the July `Fragment.coord` is per target, so this has no home yet. `uv`/`pos`/`mousePos`/`pixel` are regex-spliced into `main()` as locals. The runtime `#include` preprocessor is dead code (a Vite plugin expands includes at build time). Error line mapping is wrong; matrix uniforms cannot work |
+| `2-webgl-demos-corpus.md` | 105 projects. All 24 under `demos/` use an older API and probably do not run. Heavy duplication (about 14 wave variants). 14 capability corners with no fixture, 12 recommended acceptance tests, a full list of imperative JavaScript used. One paper-check discrepancy: `fluid-2d` never uses its pressure-iteration slider |
+| `3-glsl-library.md` | No test executes GLSL; 15 of 45 files are never included. Real errors in files in use (19- and 27-point 3D Laplacians, boundary 9-point Laplacian, `paletteViridis`, damped wave step); quaternion module broken. Functions are almost all pure. Third-party code with few attributions and no licence file. Estimate: 35-40% worth carrying forward after re-deriving and testing |
+| `4-ui-comparison.md` | `webgl-demos` is stronger on the composable panel model, control types (enum, button, text, groups, presets, on-canvas), buffer viewer and frame-time graph. This repo is stronger on embedding, theming, capture, multi-view, touch and errors. Neither has owned disposal or scoped styles. Two bugs here: sliders do not follow script-set uniforms; the frame number passed to scripts is 0 when stats are off |
+| `5-branch-sweep.md` | No second forgotten design; `shade(Fragment)` exists only in `docs/architecture/`. This repo's `old-version` branch holds about 30 older Shadertoy-style scenes (not checked against `demos/`). `webgl-demos` has an abandoned coordinate-design branch, one unmerged wave fix, and early design docs deleted from its tree but in its history |
 
 ### E. Not yet looked at
 
