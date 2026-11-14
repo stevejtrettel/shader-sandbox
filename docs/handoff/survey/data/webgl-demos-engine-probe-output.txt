@@ -1,0 +1,403 @@
+{
+ "order_A_then_B_iter1": [
+  {
+   "a": 1,
+   "b_seesA": 1,
+   "b_count": 1,
+   "aFrameSum": 1
+  },
+  {
+   "a": 2,
+   "b_seesA": 2,
+   "b_count": 2,
+   "aFrameSum": 3
+  },
+  {
+   "a": 3,
+   "b_seesA": 3,
+   "b_count": 3,
+   "aFrameSum": 6
+  }
+ ],
+ "order_B_then_A_iter1": [
+  {
+   "a": 1,
+   "b_seesA": 0,
+   "b_count": 1,
+   "aFrameSum": 1
+  },
+  {
+   "a": 2,
+   "b_seesA": 1,
+   "b_count": 2,
+   "aFrameSum": 3
+  },
+  {
+   "a": 3,
+   "b_seesA": 2,
+   "b_count": 3,
+   "aFrameSum": 6
+  }
+ ],
+ "order_A_then_B_iter3": [
+  {
+   "a": 3,
+   "b_seesA": 3,
+   "b_count": 3,
+   "aFrameSum": 3
+  },
+  {
+   "a": 6,
+   "b_seesA": 6,
+   "b_count": 6,
+   "aFrameSum": 9
+  },
+  {
+   "a": 9,
+   "b_seesA": 9,
+   "b_count": 9,
+   "aFrameSum": 18
+  }
+ ],
+ "order_B_then_A_iter3": [
+  {
+   "a": 3,
+   "b_seesA": 2,
+   "b_count": 3,
+   "aFrameSum": 3
+  },
+  {
+   "a": 6,
+   "b_seesA": 5,
+   "b_count": 6,
+   "aFrameSum": 9
+  },
+  {
+   "a": 9,
+   "b_seesA": 8,
+   "b_count": 9,
+   "aFrameSum": 18
+  }
+ ],
+ "two_passes_same_buffer": [
+  [
+   1,
+   1
+  ],
+  [
+   2,
+   3
+  ],
+  [
+   3,
+   6
+  ]
+ ],
+ "discard_exposes_two_steps_old": [
+  1,
+  0,
+  3,
+  0,
+  5,
+  0
+ ],
+ "nonpingpong_self_read": {
+  "glError": 1282,
+  "value": 0
+ },
+ "nonpingpong_chain": {
+  "err": 0,
+  "b": 20
+ },
+ "color_init_fixed_buffer": {
+  "atCreate_fixed": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "atCreate_inherit": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "afterResize_fixed": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "afterResize_inherit": [
+   0.25,
+   0.5,
+   0.75,
+   1
+  ],
+  "afterReset_fixed": [
+   0.25,
+   0.5,
+   0.75,
+   1
+  ]
+ },
+ "init_shader_sees_other_buffers_and_frame": {
+  "a": [
+   7,
+   0,
+   -1,
+   -1
+  ],
+  "b": [
+   8,
+   1,
+   0,
+   0
+  ],
+  "afterReset_a": [
+   7,
+   0,
+   -1,
+   -1
+  ]
+ },
+ "readBuffer_main_vs_current": [
+  {
+   "frame": 1,
+   "readBuffer_r": 0,
+   "expected": 26
+  },
+  {
+   "frame": 2,
+   "readBuffer_r": 51,
+   "expected": 51
+  },
+  {
+   "frame": 3,
+   "readBuffer_r": 51,
+   "expected": 77
+  },
+  {
+   "frame": 4,
+   "readBuffer_r": 102,
+   "expected": 102
+  }
+ ],
+ "readBuffer_float_buffer": {
+  "data0": 0,
+  "glErr": 1282
+ },
+ "volume3d": {
+  "layers": [
+   [
+    0,
+    0,
+    1,
+    4
+   ],
+   [
+    1,
+    0.3333333432674408,
+    1,
+    4
+   ],
+   [
+    2,
+    0.6666666865348816,
+    1,
+    4
+   ],
+   [
+    3,
+    1,
+    1,
+    4
+   ]
+  ],
+  "errAfterStep": 0,
+  "errAfterReset": 1286,
+  "afterResetLayers": [
+   0,
+   1,
+   2,
+   0.5
+  ]
+ },
+ "volume3d_depth1_layerNorm": "NaN",
+ "cube_default_vertex_shader": {
+  "compileErrors": [],
+  "stepErr": "Error: Invalid uniform array length: 16"
+ },
+ "cube_custom_vertex_no_matrix": {
+  "stepErr": null,
+  "setErr": "Error: Parameter 'uModel' not found"
+ },
+ "common_with_PI_breaks_vertex": [
+  {
+   "pass": "screen",
+   "raw": "Error: vertex shader compilation failed:\nERROR: 0:21: 'PI' : undeclared identifier\n",
+   "isFromCommon": true,
+   "line": 1
+  }
+ ],
+ "common_with_fragColor_breaks_vertex": [
+  {
+   "pass": "screen",
+   "raw": "Error: vertex shader compilation failed:\nERROR: 0:21: 'fragColor' : undeclared identifier\nERROR: 0:21: 'assign' : l-value required (can't modify a const)\nERROR:"
+  }
+ ],
+ "injection": {
+  "plain": "OK",
+  "main_void": [
+   "Error: fragment shader compilation failed: | ERROR: 0:64: 'uv' : undeclared identifier | ERROR: 0:64: 'constructor' : not enough data provided for construction | "
+  ],
+  "main_void_no_use": "OK",
+  "brace_next_line": "OK",
+  "commented_main_first": [
+   "Error: fragment shader compilation failed: | ERROR: 0:66: '=' : global variable initializers must be constant expressions | ERROR: 0:67: '=' : global variable initializers must be constant expressions | ERROR: 0:68: '=' "
+  ],
+  "block_commented_main_first": [
+   "Error: fragment shader compilation failed: | ERROR: 0:72: 'uv' : undeclared identifier | ERROR: 0:72: 'constructor' : not enough data provided for construction | "
+  ],
+  "redeclare_uv": [
+   "Error: fragment shader compilation failed: | ERROR: 0:71: 'uv' : redefinition | "
+  ],
+  "redeclare_pos_vec3": [
+   "Error: fragment shader compilation failed: | ERROR: 0:71: 'pos' : redefinition | ERROR: 0:71: 'constructor' : not enough data provided for construction | "
+  ],
+  "helper_uses_uv": [
+   "Error: fragment shader compilation failed: | ERROR: 0:64: 'uv' : undeclared identifier | ERROR: 0:64: 'constructor' : not enough data provided for construction | "
+  ],
+  "global_named_pos": "OK",
+  "function_named_pos": [
+   "Error: fragment shader compilation failed: | ERROR: 0:72: 'pos' : function name expected | "
+  ],
+  "function_named_pixel_called": [
+   "Error: fragment shader compilation failed: | ERROR: 0:72: 'pixel' : function name expected | "
+  ],
+  "param_shadow_in_helper_ok": "OK",
+  "nested_scope_redeclare_ok": "OK",
+  "macro_main": [
+   "Error: fragment shader compilation failed: | ERROR: 0:65: 'uv' : undeclared identifier | ERROR: 0:65: 'constructor' : not enough data provided for construction | "
+  ],
+  "no_main_mainImage": [
+   "Error: fragment shader compilation failed: | ERROR: -1:-1: '' : Missing main() | "
+  ],
+  "user_declares_buffer_uniform": [
+   "Error: fragment shader compilation failed: | ERROR: 0:64: 'uTime' : redefinition | "
+  ],
+  "user_declares_own_out": [
+   "Error: fragment shader compilation failed: | ERROR: 0:21: 'fragColor' : when EXT_blend_func_extended extension is not enabled, must explicitly specify all locations when using multiple fragment outputs | ERROR: 0:64: 'my"
+  ],
+  "include_directive_runtime": [
+   "Error: fragment shader compilation failed: | ERROR: 0:64: 'include' : invalid directive name | "
+  ],
+  "version_directive_in_source": [
+   "Error: fragment shader compilation failed: | ERROR: 0:64: 'version' : #version directive must occur before anything else, except for comments and white space | "
+  ],
+  "precision_int_param": "OK"
+ },
+ "injected_text": "\n// void main() {\n    // === Standard Coordinates (auto-injected) ===\n    vec2 uv = gl_FragCoord.xy / uResolution.xy;\n    ivec2 pixel = ivec2(gl_FragCoord.xy);\n    vec2 pos = toMathSpace(gl_FragCoord.xy, uResolution.xy, uMathSpace.xy);\n    // Mouse: normalize to [0,1] then convert to current render target's math space\n    vec2 mousePos = toMathSpace(uMouse.xy / uScreenResolution.xy * uResolution.xy, uResolution.xy, uMathSpace.xy);\n }\nvoid main(){ fragColor=vec4(1); }",
+ "errmap_user_noCommon": {
+  "glLine": 76,
+  "glLineText": "  float x = undefinedThing; // true line 4",
+  "reported_originalLine": 76,
+  "isFromCommon": false,
+  "msg": "'undefinedThing' : undeclared identifier"
+ },
+ "errmap_user_withCommon": {
+  "glLine": 81,
+  "glLineText": "  float x = undefinedThing; // true line 4",
+  "reported_originalLine": 51,
+  "isFromCommon": false,
+  "msg": "'undefinedThing' : undeclared identifier"
+ },
+ "errmap_user_before_main_withCommon": {
+  "glLine": 71,
+  "glLineText": "float g(){ return undefinedThing; } // true line 1",
+  "reported_originalLine": 41,
+  "isFromCommon": false,
+  "msg": "'undefinedThing' : undeclared identifier"
+ },
+ "errmap_inCommon": {
+  "glLine": 24,
+  "glLineText": "float f(float x){ return undefinedThing; } // true common line 2",
+  "reported_originalLine": 2,
+  "isFromCommon": true,
+  "msg": "'undefinedThing' : undeclared identifier"
+ },
+ "param_types": {
+  "errs": 0,
+  "val": [
+   213.5,
+   2,
+   3,
+   4
+  ],
+  "uniforms": [
+   "uniform float f;",
+   "uniform highp int i;",
+   "uniform bool b;",
+   "uniform highp int e;",
+   "uniform vec2 v2;",
+   "uniform vec3 v3;",
+   "uniform vec4 v4;"
+  ]
+ },
+ "uniform_list": [
+  "uniform vec3 uResolution;",
+  "uniform vec3 uScreenResolution;",
+  "uniform float uTime;",
+  "uniform float uDeltaTime;",
+  "uniform int uFrame;",
+  "uniform vec4 uMouse;",
+  "uniform vec2 uMouseDelta;",
+  "uniform float uMousePressed;",
+  "uniform float uMouseButton;",
+  "uniform int uLayer;",
+  "uniform float uLayerNorm;",
+  "uniform vec3 uMathSpace;",
+  "uniform float uPixelSize;",
+  "",
+  "// 3D Transformation Matrices",
+  "uniform mat4 uModel;",
+  "uniform mat4 uView;",
+  "uniform mat4 uProjection;",
+  "uniform sampler2D velocity;",
+  "uniform vec3 uVelocityResolution;",
+  "uniform highp sampler3D vol;",
+  "uniform vec3 uVolResolution;",
+  "uniform sampler2D img;"
+ ],
+ "legacy_array_passes": "THROW: TypeError: Cannot read properties of undefined (reading 'match')",
+ "string_pass_key_not_buffer": "THROW: Error: Pass 'a_second' outputs to 'a_second' but buffer 'a_second' does not exist",
+ "buffer_named_screen": "THROW: TypeError: Failed to execute 'getUniformLocation' on 'WebGL2RenderingContext': parameter 1 is not of type 'WebGLProgram'.",
+ "frame_and_time_per_iteration": [
+  4,
+  4,
+  1,
+  0
+ ],
+ "initial_resolution_small_canvas": [
+  [
+   300,
+   150
+  ],
+  [
+   500,
+   400
+  ],
+  [
+   900,
+   850
+  ],
+  [
+   900,
+   850
+  ],
+  [
+   900,
+   850
+  ]
+ ]
+}

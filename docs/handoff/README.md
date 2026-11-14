@@ -1,5 +1,11 @@
 # Handoff: reading list for the 1.0 rebuild
 
+> **Read `survey/README.md` first.** A second pass on 14 November 2026
+> read everything on the list below and also ran it. It corrects several
+> claims in this file and in `reports/`, records what the owner said in
+> that session, and holds a feature-by-feature map of what exists where.
+> This file is kept as written by the first session.
+
 Written 2026-11-14 at the end of a long scoping conversation with the owner.
 You are a fresh instance picking this up. Your job is to read everything
 below until you understand it properly, and then discuss a build plan with
